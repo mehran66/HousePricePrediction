@@ -1,0 +1,355 @@
+---
+title: 'Lab 3: Mammal Sleep Patterns'
+author: "Mehran Ghandehari"
+date: "February 15th, 2016"
+output: html_document
+---
+
+## Introduction
+
+A common objective of researchers is to determine whether two variables are associated with one another. Does patronage of a public facility vary with income? Does commuting vary with distance? Do housing prices vary with accessibility to major highways? Researchers are often interested in how variables *co-vary*. The correlation coefficient provies a standardized measure of just this: the linear association between two variables. However, it is important to remember that the existence of a linear association between two variables does not necessarily imply that there is a *causal* relationship between the two variables. If we are interested in causal relationships, then we must turn to regression analysis. Here, the relationship between one or more *independent* variables and a *dependent* variable can be explored.
+
+For example, perhaps we are interested in the relationship between housing price and the size of a house (as measured by the number of finished square feet):
+
+```{r fig.width=5}
+sales = read.csv("Data/Milwaukee_Sales_2012.csv")  # Load some data
+cor.test(sales$SalePrice, sales$FinSqft)  # Correlation test
+m = lm(SalePrice ~ FinSqft, data=sales)  # Fit a model
+plot(SalePrice ~ FinSqft, data=sales)  # Scatterplot...
+abline(m, col="red")  # ...with best fit line
+```
+
+In the following two-part lab exercise, we will utlize correlation (Part I) and regression analysis (Part II) techniques to explore the relationship between various measures used to describe the sleep patterns of different mammals. We will explore how these variables co-vary, as well as explore possible causal links between the sleep patterns of mammals and their physiological attributes.
+
+The `SleepMammals` dataset describes a number of variables that describe the sleep patterns of different mammals:
+
+Variable    | Description
+------------|---------------
+Body Wt     | Body weight (kg)
+Brain Wt    | Brain weight (g)
+NonDreaming | Slow wave sleep (hrs/day)
+Dreaming    | Paradoxial sleep (hrs/day)
+TotalSleep  | Total sleep (hrs/day)
+LifeSpan    | Maximum life span (yrs)
+Gestation   | Gestation time (days)
+Predation   | Predation index (1=low, 5=high)
+Exposure    | Exposure index (1=low, 5=high)
+Danger      | Danger index (1=low, 5=high)
+
+# Part I
+
+## Load in the Data
+
+This data is in a format common to ecological surveys. It is not a regular csv file, and so care is required when loading into `R`. Normally, it is a good idea to inspect a dataset in a text editor (e.g., notepad) before loading data into into `R` so that you can figure out how the dataset is structured/formatted. Once we have an idea of the structure of the dataset, we can use the `read.table` command in `R` to get this loaded into a `data.frame`. Alternatively, we can use `Tools > Import Dataset > From Text File...` to help us figure out which parameters to use.
+
+```{r}
+mammals = read.table("Data/SleepMammals.txt", header=TRUE)
+summary(mammals)
+```
+
+Note that in the above summary, the values for `Predation`, `Exposure`, and `Danger` are treated as numeric (integers), whereas according to the above table, they should be treated as categorical data (`factors`). To fix this, we can convert those variables to `factors` using the `as.factor` function:
+
+```{r}
+mammals$Predation = as.factor(mammals$Predation)
+mammals$Exposure = as.factor(mammals$Exposure)
+mammals$Danger = as.factor(mammals$Danger)
+
+# Show a summary of these newly converted variables 
+summary(mammals[, c("Predation", "Exposure", "Danger")])
+```
+
+Alternatively, we could have specified the column types in the `read.table` function using the `colClasses` argument (type `?read.table` into the console to find out more about the `read.table` function and its various arguments).
+
+Now that we have loaded the mammal sleep data into `R`, take a look at the variables and explore the dataset using the various summary tools available in `R`. Once you have a good idea of the structure of the dataset and the distribution of the variables, you should be able to answer the following questions to learn how to implement correlation, regression, and multiple regression techniques. We will also learn about making different types of plots/graphics.
+
+## Descriptive Statistics & Visualization
+
+1.	Create a new variable in the `mammals` `data.frame` named `BrainPct` that is the percentage of total body weight that the brain weighs. Note that the body weight is given in kilograms (kg) and brain weight is given in grams (g), so the calculation is `BrainPct = BrainWt / (BodyWt * 1000)`.
+    ```{r}
+    mammals$BrainPct = (mammals$BrainWt / (mammals$BodyWt * 1000))*100
+    ```
+
+  * Which animal has the highest `BrainPct`?
+    ```{r}
+    HighestBrainPct = mammals[mammals$BrainPct == max(mammals$BrainPct), "Species"]
+    print(HighestBrainPct)
+    
+    # or
+    # HighestBrainPct = mammals[which.max(mammals$BrainPct), "Species"]
+    ```
+
+  * Which animal has the lowest `BrainPct`?
+    ```{r}
+    LowestBrainPct = mammals[mammals$BrainPct == min(mammals$BrainPct), "Species"]
+    print(LowestBrainPct)
+    ```
+
+  * What is the mean and median of `BrainPct`?
+    ```{r}
+    # the mean of BrainPct
+    MeanBrainPct = mean(mammals$BrainPct)
+    print(MeanBrainPct)
+    
+    # the median of BrainPct
+    MedianBrainPct = median(mammals$BrainPct)
+    print(MedianBrainPct)
+    ```
+
+2. Take a look at the distribution of `BrainPct` by plotting a histogram.
+  * Try to produce an alternative plot (or two) that might also help you explore the overall distribution of this variable.
+    ```{r, fig.align='center'}
+    # distribution of BrainPct
+    par(mfrow=c(2,2))
+    hist(mammals$BrainPct, 
+         col="gray", 
+         xlab = "Brain Percentage", 
+         main = "Histogram of Brain Percentage")
+    
+    plot(density(mammals$BrainPct), 
+         col="gray", 
+         main = "Density plot of Brain Percentage")
+    
+    boxplot(mammals$BrainPct, 
+            col="gray", 
+            ylab = "Brain Percentage", 
+            main = "Box plot of Brain Percentage")
+    
+    # vioplot is a combination of a density plot and a box plot
+    library(vioplot)
+    vioplot(mammals$BrainPct, col="gray")
+    title("Vio plot of Brain Percentage")
+    ```
+
+  * Does the distribution appear positively (right) skewed, negatively (left) skewed, or normally distributed?
+    ```{r}
+    # the distribution appears positively (right) skewed
+    ```
+
+  * Compute the [skewness statistic](https://en.wikipedia.org/wiki/Skewness) (you'll need the `moments` package to do this, if you don't have it... install it!). Does it indicate the distribution is skewed?
+    ```{r}
+    library(moments)
+    skewness(mammals$BrainPct)
+    # The skewness here is 1.315525. This value implies that the distribution of the data is skewed to the right or positively skewed. As a rule, positive skewness indicates that the mean is larger than the median, and the data distribution is right-skewed.
+    ```
+
+3. Create a scatterplot with `LifeSpan` on the y-axis and `Gestation` on the x-axis.
+    ```{r, fig.align='center'}
+    plot(mammals$Gestation, mammals$LifeSpan, 
+       xlab = "Gestation",
+       ylab = "LifeSpan",
+       pch = 20,
+       col = "grey")
+    abline(lm(mammals$LifeSpan ~ mammals$Gestation), col="red")
+    ```
+
+4.	Generate a boxplot that compares body weight across the five `Danger` levels. 
+    ```{r, fig.align='center'}
+    boxplot(mammals$BodyWt ~ mammals$Danger,
+        col = "beige",
+        xlab = "Danger Level",
+        ylab = "Body Weight", outline =F) # The outliers have been eliminated
+
+    # ploting the mean of each group
+    means = aggregate(BodyWt~Danger,data=mammals,FUN="mean", outline =F)
+    par(new=T)
+    points(means, col="red",pch=18)
+    ```
+
+  * Finally, create a boxplot that compares `TotalSleep` across the five `Danger` levels.
+    ```{r, fig.align='center'}
+    boxplot(mammals$TotalSleep ~ mammals$Danger,
+        col = "beige",
+        xlab = "Danger Level",
+        ylab = "Total Sleep",
+        outline=FALSE) # The outliers have benn eliminated
+    
+    # ploting the mean of each group
+    means = aggregate(TotalSleep~Danger,data=mammals,FUN="mean", outline =F)
+    par(new=T)
+    points(means, col="red",pch=18)
+    ```
+
+  * What inferences can you make about the sleeping conditions of an animal from this box plot?
+    ```{r}
+    # From the the trend of mean and median across the five danger level, we can conclude that there is as indirect relationship between total sleep and denger level. That is, those mamals that are more under denger, should keep their eyes opens and sleep less. Also danger level 5 has the smallest range (smallest variance) of total sleep. 
+    ```
+
+## Data Transformations
+
+5.	Log-transform the `BrainPct` data and save it as a new variable `LogBrainPct`.
+    ```{r}
+    mammals$LogBrainPct = log(mammals$BrainPct)
+    ```
+
+  * Plot the histogram of `LogBrainPct` with a normal curve added (Hint: you'll want to use `freq=FALSE` in your `hist` function to plot densities instead of frequencies).
+    ```{r, fig.align='center' }
+    hist(mammals$LogBrainPct, 
+         freq=FALSE, 
+         col = "beige",
+         xlab = "Log (Brain Percentage)", 
+         main = "Logarithmic Histogram of Brain Percentage")
+    
+    mu = mean(mammals$LogBrainPct)
+    std = sd(mammals$LogBrainPct)
+    curve(dnorm(x, mean=mu, sd=std), add=TRUE, col = "red")  # Add curve to plot
+    ```
+
+6. Discussion Question:
+  * What property of a data distribution are you attempting to change by taking the logarithm? Why do you think this is a useful thing to do? You'll need to refer to the literature and Google to answer this question.
+    ```{r}
+    # We use a data transformation (here, logarithm) for brain percentage that has a skewed distribution in order to make it normal. As we can see in the previous density plot, after logarithm transformation the brain percentage distribution is pretty much normal. This is useful for several reasons, such as changing an exponential correlation to a linear correlation, reducing skewness, convenience of data processing, meeting the assumptions of inferential statistics, making a relationship clear and the pattern in the data more interpretable.
+    ```
+    
+## Correlation Analysis
+
+7. What is the correlation between lifespan and gestation period? (Hint: there are some missing (`NA`) values here, you'll need to specify `use="complete.obs"` when performing your correlation test (see `?cor` for details)) Could you have guessed this from your plot in question 3?
+    ```{r}
+    cor(mammals$LifeSpan, mammals$Gestation, use = "complete.obs", method = "pearson") # pearson method
+
+cor(mammals$LifeSpan, mammals$Gestation, use = "complete.obs", method =  "kendall") # kendall method
+
+cor(mammals$LifeSpan, mammals$Gestation, use = "complete.obs", method = "spearman") # spearman method
+
+    # Yes, from plot in question 3, it was clear that there is a positive linear relationship between these two variables.
+    ```
+    
+8. Compute the correlation matrix between total sleep, body weight, brain weight, life span and gestation. You'll need to subset your dataset to include only the above variables (Aside: you can get a `data.frame` with *only* `numeric` variables by using `df[sapply(x, is.numeric)]`).
+    ```{r, fig.align='center'}
+    MammalsSubset = data.frame(TotalSleep = mammals$TotalSleep, BodyWt = mammals$BodyWt, BrainWt = mammals$BrainWt, LifeSpan = mammals$LifeSpan, Gestation = mammals$Gestation)
+
+    # mammals[,sapply(mammals, is.numeric)] # this code is extract the numeric attributes, but here we don't need all of the numeric attributes
+
+    MammalsSubset_corr = cor(MammalsSubset, use = "complete.obs", method = "pearson") # get correlations
+    
+    library('corrplot') #package corrplot
+    corrplot(MammalsSubset_corr, method = "circle", addCoef.col = "black") #plot matrix
+
+# Use "Pairs Plot" from "psych" package to visualize scatter plot
+    library("psych")
+    pairs.panels(MammalsSubset, gap = 0)
+    ```
+  * Based on Pearson's correlation coefficient, which two variables are *most* and *least* correlated with each-other?
+    ```{r}
+    # Body weight and brain weight are the most correlated (0.93) and body weight and life span are the least correlated (0.30).
+    ```
+
+# Part II
+
+## Linear Regression
+
+9. Create a linear regression model with `TotalSleep` as a dependent variable and `BodyWt` as the independent variable.
+    ```{r}
+    Sleep_BodyWt.lm = lm(mammals$TotalSleep ~ mammals$BodyWt)
+    coeffs = coefficients(Sleep_BodyWt.lm); coeffs
+    ```
+
+  * What is the regression equation ($y = \beta_0 + \beta_1 x_1$)?
+    ```{r}
+    # β0 = 10.835131637
+    # β1 = -0.001524093
+    # TotalSleep = 10.835131637 + (-0.001524093) BodyWt
+    ```
+
+  * Is `BodyWt` a significant predictor of `TotalSleep`? What evidence do you have to support this?
+    ```{r}
+    summary(Sleep_BodyWt.lm)
+    #  P-value is less than .05. so we can reject the null hypothesis; it means that there is a significant relationship between the variables in the linear regression model based upon the .05 significant level. But also we can accept the null hypothesis based on the .001 and .01 significant levels, and conclude that there is not a significant relationship between the body weight and total sleep. In addition, R-squared in the regression summary is a metric for evaluating the goodness of fit of your model. Values close to one mean that most of the variability in the dependent variable is explained by the regression model. On the other hand, values close to zero mean that the model cannot explains the variability of the response data around its mean. Here the value of R-squre is 0.09436, and so body weight cannot explains all of the variability of the total sleep in the the regression model. So, although body weight can explain some of the variability of the total sleep, it cannot explain most of the variability in the total sleep. Also the correlation between total sleep and body weight is -0.30, which is considered a low value and means there is not  strong relationship between these two variables. Furtherermore, based on the scatter plot of these two variables, we can understand that the small coefficient and correlation is due only to a few observation that can be considered as outliers.
+    ```
+
+  * Create a scatterplot for the model and add the regression line to the plot (Hint: you can add a regression line based on a fitted model using the `abline` function).
+    ```{r, fig.align='center'}
+    plot(mammals$BodyWt, mammals$TotalSleep,
+     main = "linear regression model",
+     xlab = "BodyWt",
+     ylab = "TotalSleep",
+     pch = 20,
+     col = "grey")
+    # Add fit lines
+    # Linear regression line (y ~ x) 
+    abline(Sleep_BodyWt.lm, col="red")
+    
+    par(mfrow=c(2,2))
+    plot (Sleep_BodyWt.lm) # linear regression model built-in plots
+    ```
+    
+10.	Create a linear regression model with `TotalSleep` as a dependent variable and `BrainWt` as the independent variable.
+    ```{r}
+    Sleep_BrainWt.lm = lm(mammals$TotalSleep ~ mammals$BrainWt)
+    coeffs = coefficients(Sleep_BrainWt.lm); coeffs
+    ```
+
+  * What is the regression equation ($y = \beta_0 + \beta_1 x_1$)?
+    ```{r}
+    # β0 = 11.016324028 
+    # β1 = -0.001719468 
+    # TotalSleep = 11.016324028  + (-0.001719468) BodyWt
+    ```
+
+  * Is `BrainWt` a significant predictor of `TotalSleep`? What evidence do you have to support this?
+    ```{r}
+    summary(Sleep_BrainWt.lm)
+    #  P-value (.00578) is less than .05. so we can reject the null hypothesis; it means that there is a significant relationship between the variables in the linear regression model based upon the .05 and .01 significant levels. But also we can accept the null hypothesis based on the .001 significant level, and conclude that there is not a significant relationship between the brain weight and total sleep. In addition, here the value of R-squre is 0.1282, and so brain weight cannot explains most of the variability of the total sleep in the the regression model. So although brain weight can explain some of the variability of the total sleep, cannot explains most of the variability of the total sleep. Also the correlation between total sleep and brain weight is -0.35, which is considered a low value and means that there is not such a strong relationship between these two variables. Furtherermore, based on the scatter plot of these two variables, we can understand that the small coefficient and correlation is due only to a few observation that can be considered as outliers.
+    ```
+
+  * Create a scatterplot for the model and add the regression line to the plot.
+    ```{r, fig.align='center'}
+    plot(mammals$BrainWt, mammals$TotalSleep,
+     main = "linear regression model",
+     xlab = "BrainWt",
+     ylab = "TotalSleep",
+     pch = 20,
+     col = "grey")
+    # Add fit lines
+    # Linear regression line (y ~ x) 
+    abline(Sleep_BrainWt.lm, col="red")
+    
+    par(mfrow=c(2,2))
+    plot (Sleep_BrainWt.lm) # linear regression model built-in plots
+    ```
+
+11. Which of `BodyWt` and `BrainWt` was a better predictor of `TotalSleep`?
+    ```{r}
+    # Based on the p-value, R-square, coefficient and correlation, BrainWt is a better predictor of TotalSleep
+    ```
+
+## Multiple Regression
+
+12. Fit a multiple regression model using total sleep as the dependent variable and body weight, brain weight, life span, and gestation period as the four independent variables.
+    ```{r}
+    MultiReg.lm = lm(mammals$TotalSleep ~ mammals$BodyWt + mammals$BrainWt + mammals$LifeSpan + mammals$Gestation)
+    ```
+
+  * What is the regression equation ($y = \beta_0 + \beta_1 x_1 + \beta_2 x_2 + \beta_3 x_3 + \beta_4 x_4$)?
+    ```{r}
+    # β0 = 14.0736660
+    # β1 = -0.0005791
+    # β2 = 0.0020740
+    # β3 = -0.0072159 
+    # β4 = -0.0289144
+    # TotalSleep = 14.0736660 + (-0.0005791)BodyWt + (0.0020740)BrainWt + (-0.0072159 )LifeSpan + (-0.0289144)Gestation
+    ```
+    
+  * Which independent variables were deemed to be significant predictors in the model above?
+    ```{r}
+    summary(MultiReg.lm)
+    # Gestation is deemed to a significant predictor with a very small p-value
+    ```
+    
+  * How have the regression coefficients changed from the models in the previous section to the multiple regression model above?
+    ```{r}
+    # regression coefficient for the BodyWt is nearly similar for both models, but regression coefficient for the BrainWt changed from a negative value (-0.0017) in linear regression to a positive value (0.0020) in multiple regression. Also the intercept increased a ittle bit. Therefore, the regression coefficients in a mltiple regresions are not equal to the correponding coefficients in the linear regresions. Also the p-values of t-statistics for both of the coefficients have increased alot. This means that these variables do have quite a weak effect in the regression model and moost of the variation in the total sleep has been modeled by gestation.
+    ```
+    
+13. Discussion Question: 
+  * Why is such a linear modelling framework, where we combine multiple independent (explanatory) variables such a valuable tool for analysing datasets encountered in geography?
+    ```{r}
+    # Geographic phenomena are dependent on various variables, processes, and relationships. for example, flooded areas are a function of elevation, terrain slope, soil type, etc.; or car accidents are a function of weather, road conditions, speed, etc.; These relationships and processes can be discovered, modeled and explored using regression models (linear or non-linear). These models can be used to find the factors behind spatial patterns. They also can be used for prediction; By modeling a phenomena, a prediction model can be built for some other places and times that direct measurments are impossible. To understand the processes accuring on the earth, we need to find the realationship between valiables that influence these processes. So, regression moodels help to better understand the geographic phenomena. It can be used to model cause-effect processes as well. for example, understanding the the factors that increase the risk of an environmenral disaster. Finding relationships between variables and the degree of relationship is quite important in all of the geographuc studies.
+    ```
+
+### Reference
+
+This lab has been adapted from a lab developed by [Dr. Jed Long](http://jedalong.github.io) at the University of St. Andrews. The introduction comes from Rogerson's [Statistical Methods for Geography](https://study.sagepub.com/rogerson4e), [Chap. 7](https://study.sagepub.com/rogerson4e/student-resources/correlation).
+
+### Acknowledgment
+
+This lab was really helpful. Thanks!

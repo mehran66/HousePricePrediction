@@ -1,0 +1,67 @@
+﻿<!doctype html><html><head><meta charset="utf-8"><style>
+      /* Separated from document_view.css to enable use in downloadable
+   export files. #cutAndCopyBucket is included for every rule because
+   we wwant cut/copied items to be formatted the same way as they
+   would be when exported. */
+
+.formattedExport,
+#cutAndCopyBucket {
+    font-family: 'Helvetica Neue', Arial, Sans-serif;
+    color: #333;
+    font-size: 13px;
+    line-height: 17px;
+    /* used to set white-space: pre-wrap here, but that messes up GMail's
+       formatting of the export output, so moving that to the name and
+       notes separately. */
+}
+
+.formattedExport .name, .formattedExport .note,
+#cutAndCopyBucket .name, #cutAndCopyBucket .note {
+    white-space: pre-wrap;
+}
+
+.formattedExport ul,
+#cutAndCopyBucket ul{
+    list-style: disc;
+    /* Needed to reset browser defaults. */
+    margin: 0;
+    padding: 0;
+}
+
+.formattedExport li,
+#cutAndCopyBucket li {
+    margin: 4px 0 4px 20px;
+    /* Needed to reset browser defaults. */
+    padding: 0;
+}
+
+.formattedExport > .name,
+#cutAndCopyBucket > .name {
+    font-size: 16px;
+    line-height: 21px;
+}
+
+.formattedExport > .note,
+#cutAndCopyBucket > .note {
+    font-size: 13px;
+    line-height: 17px;
+}
+
+.formattedExport > ul,
+#cutAndCopyBucket > ul {
+    margin-top: 15px;
+}
+
+.formattedExport .name.done,
+#cutAndCopyBucket .name.done {
+    text-decoration:line-through;
+    color:#999;
+}
+
+.formattedExport .note,
+#cutAndCopyBucket .note {
+    font-size: 12px;
+    color:#666;
+}
+
+      </style></head><body class="formattedExport"><ul><li><span class="name">Variable Selection</span><ul><li><span class="name">How do the explanatory variables you chose reflect the crime type you are modeling? </span><br /><span class="note">˜1 para</span></li></ul></li><li><span class="name">Descriptive Statistics/Data Visualization</span><ul><li><span class="name">Summarize the data and/or provide a few visualizations (maps, plots).</span></li><li><span class="name">What general trends do you observe?</span><br /><span class="note">˜1-2 sentences</span></li></ul></li><li><span class="name">Data Preparation [*]</span><ul><li><span class="name">Did you combine any fields, create dummy variables, transform variables, subset the data, etc? Explain.</span><br /><span class="note">˜1-2 sentences -  1 para, depending on the number of operations. A bulleted list is fine too. Support with some additional visualizations is encouraged.</span></li></ul></li><li><span class="name">1st Model Specification</span><ul><li><span class="name">LM summary</span></li><li><span class="name">Interpret model coefficients/p-values, model rˆ2/F-Test </span><br /><span class="note">˜2 sentences</span></li><li><span class="name">Model DIagnostics </span><br /><span class="note">˜1 sentence/code comment each</span><ul><li><span class="name">Plot Residuals ˜ Fitted </span></li><li><span class="name">Map residuals </span></li><li><span class="name">Test for multicollinearity (VIF)</span></li><li><span class="name">Test for heteroskedasticity ('ncvTest' in 'car', 'bptest' in 'lmtest')</span></li></ul></li></ul></li><li><span class="name">Model adjustment </span><br /><span class="note">˜1 para</span><ul><li><span class="name">Diagnostic tests: Anova, extra sum of squares, etc. </span></li><li><span class="name">What variables did you add/remove?</span></li><li><span class="name">Did you process the data any further (i.e. additional transformations)? Explain. [*]</span></li></ul></li><li><span class="name">Further model specification/diagnostics </span><br /><span class="note">Follow the same workflow as the "1st Model Specification"/"Model adjustment" sections. <span class="contentBold">You should aim to run through ˜2 more model iterations.&nbsp; </span>Keep in mind that <span class="contentBold">your final model does not need to be perfect</span>, you will be explaining its shortcomings in the final model summary.</span></li><li><span class="name">Final Model Summary</span><br /><span class="note">˜2 paras</span><ul><li><span class="name">In what ways does your final model explain the crime type you chose?</span><br /><span class="note">˜1 para</span></li><li><span class="name">What shortcomings does your final model have? </span><br /><span class="note">˜1 para, or more if there are a lot of limitations...</span><ul><li><span class="name">In what ways is the model's explanatory power limited?</span></li><li><span class="name">Does the model still violate assumptions of OLS regression (i.e. heteroskedasticity, residual [spatial]autocorrelation)? </span><br /><span class="note">Explain how these problems limit your ability to draw inferences about the crime type you chose. </span></li><li><span class="name">How might the characteristics of the variables you chose influence these problems? [*]</span></li></ul></li></ul></li></ul></body></html>

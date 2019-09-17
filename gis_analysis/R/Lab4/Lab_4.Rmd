@@ -1,0 +1,1980 @@
+---
+title: 'Lab 4: Policing in the News'
+output: html_document
+---
+
+## Introduction
+
+Recently there have been nationwide protests, triggered by events in Ferguson, MO, that have challenged common police practices. The police argue that individuals and neighborhoods are targeted because certain "types" of people are more likely to engage in criminal activity. This type of profiling and the tactics used by police have come under intense public scrutiny. Sophisticated statistical analyses ([Gelman et al. 2007](http://www.stat.columbia.edu/~gelman/research/published/frisk9.pdf)) report that in New York City racial minorities are stopped disproportionately by police (even *after* accounting for local variations in crime rates and prevalence of different groups to be caught for committing crime). The central question, in statistical debates is, "are the police acting based upon data or racial/cultural bias"?
+
+Many cities have started to publish crime statistics. These allow citizens to see limited information about each crime recorded by the city's police department, typically the location, date, and type of crime. The public discourse around police use of profiling (and physically aggressive tactics) often lacks nuance. On the one hand it seems reasonable to expect police to use data to inform their strategies and tactics, on the other hand its seems entirely unjust to target individuals and places (with force that may be excessive) simply because of their racial and/or econmoic characteristics.
+
+In this lab you will tackle the following questions:
+
+* At the neighborhood level does one type of profile apply to all types of crimes?
+* Does the neighborhood (tract) “profile” for crime vary for different types of crimes? 
+* Are certain neighborhood-level attributes routinely associated with crime prevalence?
+
+In this lab you will be using crime data, provided by the city of Chicago and Census Tract Level data from the American Community Survey. [Download data here](https://www.dropbox.com/s/xe77fjd0i4lypf8/Data.zip?dl=1). A few words of caution, [multicollinearity](https://en.wikipedia.org/wiki/Multicollinearity) may be a major and unavoidable problem in your analysis. This makes it difficult to directly compare model coefficients. A conservative approach to multicollinearity is to structure models in such a way that you never have to directly interpret coefficients. For example, only talking about the model in the aggregate ("the $R^2$ for model 2 is better than the one for model 1"). However, this is unsatisfying and difficult to communicate to policy makers. An alternative approach, that is slightly less conservative, is to control multicollinearity as much as possible and discuss the significance and sign of individual coefficients (but not their magnitudes). How you present your models is a matter of personal judgement.
+
+## Getting staring
+
+The data we will be working with is inherently spatial, the tract-level data from both the city and the Census describes places. Thus maps are a convenient way to visualize both the inputs and outputs to our analysis. Visualizing spatial data is fairly easy in `R`, however making a proper map (with marginalia) is really time consuming. We will be "mapping" things in `R`, but this term is used quite loosely; the basic maps made in this lab would make most properly trained cartographers squirm and avert their eyes!
+
+We have to load a few libraries for handling and visualizing spatial data.
+
+```{r warning=FALSE, message=FALSE}
+library(maptools)  # Guess what this packahe is for? for creating maps:)
+# Load a map and data for Chicago
+# These are stored in the "shapefile" format
+chicago = readShapePoly("Data/ChicagoCrime.shp")
+```
+
+The chicago object you just created is a `SpatialDataFrame`, this is a type of `R` object that contains spatial data (points, lines, or polygons) and the attributes of each element in the data. Working with spatial data frames is slightly different from working with regular data.frames, spatial data.frames have a lot of different pieces. You can see these pieces by typing `head(chicago)` but this gives reams of hard to digest output. `SpatialDataFrames` are organized using a series of 'slots' to hold data, geometry, projection, and other information necessary for drawing maps. You can see the names of these slots by typing `slotNames(chicago)`.
+
+`SpatialDataFrames` have special behavior, if you use the `plot()` function they draw a map. This map only shows the outlines of the polygons (or points/lines) that contain data. Visualizing data on the map requires a few more steps (see below).
+
+```{r warning=FALSE, message=FALSE}
+plot(chicago)
+```
+
+If you want to see only the data you have to access the 'data' slot. This is done using the `@` symbol and typing the name of the slot you want to access. For example, `chicago@data` provides access to the data.frame describing all census tracts in Chicago. You can work with `chicago@data` just like you would work with a regular data.frame (Note: you might want to create a separate `chdata` data.frame object by doing `chdata = chicago@data` later).
+
+One of the things you'll immediately notice about the Chicago data is that the column names are all truncated to 10 characters. This makes it very hard to understand what each variable stores. This is a legacy of the shapefile format, which (stupidly) is incapable of storing column names of more than 10 characters. We'll rename the columns so it's easier to tell what we are working with. You can print the list of variable names for any data frame by typing `names(df_name)`.
+
+```{r}
+# Read in a readable list of variable names (this was created by hand).  
+# Note the use of ":" as a column delimiter...
+# If names are too verbose for your liking edit them in the text file prior to importing
+var_names = read.table("Data/Variable Descriptions.txt", sep=":", strip.white=TRUE)
+
+# Attach the modified names to the chicago data
+names(chicago@data) = as.character(var_names[, 2])
+```
+
+## Making Maps in R
+
+Drawing a map in `R` is way more complicated than it needs to be. This lab will present a simple method for making thematic maps, this method, because it is simple, doesn't allow nuanced control of visual variables. The most robust methods for creating maps involve the use of the package `lattice` and the function `spplot()` or the use of the `ggplot` library and the `fortify()` function (We'll learn more about `ggplot` in future labs).
+
+(**Note**: You may encounter some trouble using the `fortify()` function. If running `fortify()` returns a permission error message, you'll need to install and load an additional package, `rgeos`, to get it working properly. Ask your TA if you need assistance with this.)   
+
+The process for making simple maps in `R` is as follows:
+
+* Choose a variable to map, divide that variable into categories (typically 3-7 categories are used for thematic maps). For example a variable like `income` could be divided into categories `for 0-$10,000; $10,000-$20,000; $20,000-$30,000` and so on. To do this use function `cut` or `classIntervals`, in this lab we will use `classIntervals`.
+* Choose a palette that has the same number of colors as the variable does categories. If you created 4 income groups choose a palette with 4 colors. To aid in color selection we will use the `RColorBrewer` library (which is based on the famouse [ColorBrewer website](http://colorbrewer2.org)).
+* Attach the colors to the categories and draw the map.
+
+```{r message=FALSE, warning=FALSE}
+library(classInt)  # Library for creating clases
+# Create Categories based on quantiles
+cats7 = classIntervals(chicago$Number_of_violent_crimes, n=7, style="quantile")
+```
+
+Now we have to choose a color to use to describe the categories.
+
+```{r message=FALSE, warning=FALSE}
+library(RColorBrewer)
+# Display all palettes
+# display.brewer.all() 
+
+# Lets use this one
+# display.brewer.pal(7, "YlGnBu")
+
+# Save palette as an object
+pal7 = brewer.pal(7, "YlGnBu") 
+```
+
+The last step is to attach the palette to the categories and draw the map.
+
+```{r}
+seven_cols = findColours(cats7, pal7) 
+
+# Draw map using specificed data and colors
+# lty=0 (line type) turns off tract borders
+plot(chicago, col=seven_cols, lty=0)
+```
+
+1. In thinking about the previous map, what can we do to reduce the impact of plotting potential outliers (think in terms of density and variation in populations)?
+    * Create a crime density map. What variables are required here?
+    ```{r}
+    # normalizing the income by deviding to Area of each Tract 
+    cats7_perarea = classIntervals(chicago$Number_of_violent_crimes / chicago$Area_of_Tract_ , n=7, style="quantile")
+    seven_cols = findColours(cats7_perarea, pal7) 
+    plot(chicago, col=seven_cols, lty=0)
+    
+       # normalizing the income by deviding to the population of each tract ((chicago$Population_Density * chicago$Area_of_Tract_)) 
+    cats7_perarea = classIntervals(chicago$Number_of_violent_crimes / (chicago$Population_Density * chicago$Area_of_Tract_), n=7, style="quantile")
+    seven_cols = findColours(cats7_perarea, pal7) 
+    plot(chicago, col=seven_cols, lty=0)
+    ```
+    * Why is density a potentially more useful way to visualize crime?
+    ```{r eval=F}
+    "
+    Desity of crime is a more reliable representation of crime in the map because 
+a tract with high/low number of crimes cannot be interpreted as a hot/cold spot crime in the map or vice versa. The crime number should be devided by area (or more appropriately by population) to be better representative of crime pattern in the map.
+    "
+    ```
+
+2. The next thing we want to do is *explore* our data more. Start by taking a look at the distribution of the variable `Number_of_violent_crimes`. What do you notice? Are there any outliers?
+    * Create a plot that will help to identify outliers.
+    ```{r}
+    boxplot(chicago@data$Number_of_violent_crimes)
+    "Based on the box plot of Number_of_violent_crimes, it seems that there are some 
+outliers in the data"
+    ```
+    * What might be reasons for these outliers (list some)?
+    ```{r eval=F}
+    "These outliers can have several reasons:
+     - The population of a those tracts are much higher than the other tracts and so it make sense to observe more crime
+     - Maybe there is a racial/cultural bias in the neigborhood for which the crime is reported
+     - Maybe that is not an actual outlier and the crime rate is really high in a neighborhood
+    Note: I think outlier is not a ggod term here because the probably the extreme values are not wrong data, and they just should be normalized to be interpreted"
+    
+    ```
+    * Create a new variable called `adj_violent_crimes` that 'adjusts' for potential outliers.
+    ```{r}
+    chicago$adj_violent_crimes = sqrt(chicago$Number_of_violent_crimes)
+    ```
+    * Square root transforms (used above) are one means of transforming the response variable. Try several alternative transformations (log, exp, etc) and examine the distribution of the transformed response variable. Choose one that you feel performs most effectively and reassign it to `chicago$adj_violent_crimes`. (It's fine to keep the square root transform, but justify the choice if you do).
+    ```{r, fig.align='center'}
+    par(mfrow=c(3,2))
+    # SQRT 
+    hist(sqrt(chicago$Number_of_violent_crimes), col="gray")
+    boxplot(sqrt(chicago$Number_of_violent_crimes),            
+            col="gray", 
+            ylab = "sqrt(Number of violent crimes)", 
+            main = "Box plot of sqrt(chicago$Number_of_violent_crimes)")
+    # LOG
+    hist(log(chicago$Number_of_violent_crimes), col="gray")
+    boxplot(log(chicago$Number_of_violent_crimes),            
+            col="gray", 
+            ylab = "log(Number of violent crimes)", 
+            main = "Box plot of log(chicago$Number_of_violent_crimes)")
+    # EXP
+    hist(exp(chicago$Number_of_violent_crimes), col="gray")
+    boxplot(exp(chicago$Number_of_violent_crimes),            
+            col="gray", 
+            ylab = "exp(Number of violent crimes)", 
+            main = "Box plot of exp(chicago$Number_of_violent_crimes)")
+    ```
+    * Explain why you chose the adjustment you did (choose one of `sqrt`, `log`, or `exp`).
+    ```{r eval=F}
+    "
+    I chose SQRT because the distribution of the transformed data is nearly normal and data is evenly distributed based on the box plot as well. The distribution of LOG also is close to normal, but it is a bit skewed, and it seems that SQRT works a bit better for this dara.
+    "
+    ```
+
+## Multiple Regression
+
+Now we want to fit models to predict the association between neighborhood level socioeconomic characteristics and crime. This is an academic exercise but it reflects many real world situations, where one is faced with a large set of potential models to answer a somewhat vague policy/empirical question.
+
+For example, the model below (which has an adjusted R-square of about 0.5), has a selection of variables that *might* be associated with the prevalence of violent crime:
+
+```{r}
+mod1 = lm(adj_violent_crimes ~ Population_Density + 
+          Percent_of_children_in_single_female_headed_household + 
+          Percent_of_households_with_no_car +  
+          Percent_Less_than_High_School_Education_ + 
+          Percent_with_a_Graduate_Degree_ + 
+          Percent_Black_Alone +
+          Median_House_Value +
+          Median_Rent_ +
+          Income_Gini_Coefficient_,
+          data=chicago@data)
+```
+
+3. It is important to do diagnostics on the model to make sure that it is not violating any key assumptions.
+  * Produce a histogram and scatterplot of the above model's residuals.
+    ```{r}
+    hist(resid(mod1))
+    plot(resid(mod1) ~ predict(mod1))
+    abline(0, 0) # the horizon
+    ```
+  * Are there any major issues that we should be concerend about?
+    ```{r eval=F}
+    " No, Here is the checklist:
+
+heteroskedasticity (non-constant variance): The residuals roughly form a horizontal band around the 0 line. This suggests that the variances of the error terms are equal.
+
+influential observations (possible outliers): there are a few outlires, but their value is not very large and cannot be considered a major issue. But in general non of them do  stands out from the basic random pattern of residuals. 
+
+pattern: There is not any pattern in the plot and The residuals bounce randomly around the 0 line. This suggests that the assumption that the relationship is linear is reasonable.
+    "
+    ```
+
+4. It's also useful to check for spatial patterns in the residuals from the model. Is the model performing well in some areas but not in others? To do this we'll have to map the residuals.
+    * Produce a map of model residuals similar to the first map of the response variable. This time, use the 'jenks' classification style, and the `"YlOrRd" color palette (with 5 classes).
+
+    ```{r }
+    # Jenks categories of residuals
+    cats5 = classIntervals(resid(mod1),  n=5, style="jenks")
+    
+    # Five class color palette
+    pal5 = brewer.pal(5, "YlOrRd") 
+    
+    # Attach colors to categories
+    five_cols = findColours(cats5, pal5)
+    
+    # Plot map
+    plot(chicago, col=five_cols, lty=0)
+    ```
+    * Do the residuals seem spatially random?
+    ```{r eval=F}
+    "Yes, the residuals seem spatially random, and no pattern can be seen in the residual map"
+    ```
+    * To give you something to compare to, if we omit most variables from the model we will see spatial patterns in the residuals, as shown below for the model `adj_violent_crimes ~ Population_Density`:
+    ```{r}
+    # Basic model
+    m = lm(adj_violent_crimes ~ Population_Density, data=chicago@data)
+
+    # Jenks categories of residuals
+    cats5 = classIntervals(resid(m),  n=5, style="jenks")
+    
+    # Five class color palette
+    pal5 = brewer.pal(5, "YlOrRd") 
+    
+    # Attach colors to categories
+    five_cols = findColours(cats5, pal5)
+    
+    # Plot map
+    plot(chicago, col=five_cols, lty=0)
+    ```
+    
+When the residuals from a model show clear spatial patterns there is evidence of some sort of missing variable, this is sometimes called 'model mispecification'. The patterns in the model residuals suggest some variable or variables, missing from the model, are strongly related to the outcome of interest. For example, the plot shown below plots the residuals from the minimalist model above against percent African-American. Two things are striking in this plot:
+
+  * Chicago is a highly segregated city, most tracts are either more than 80% black or less than 20% black.
+  * The model tends to overpredict in places with a low percent African-American and underpredict in places with a high proportion African-American.  
+    ```{r echo=FALSE}
+    plot(chicago@data$Percent_Black_Alone, resid(m), xlab="Residuals", ylab="Percent Black Alone")
+    abline(h=0, col="red", lwd=2)
+    ```
+
+It's also important to check models for multicollinearity. This is done by calculating the Variance Inflation Factor (VIF) as follows:
+
+```{r}
+mod1 = lm(adj_violent_crimes ~ Population_Density + 
+          Percent_of_children_in_single_female_headed_household + 
+          Percent_of_households_with_no_car +  
+          Percent_Less_than_High_School_Education_ + 
+          Percent_with_a_Graduate_Degree_ + 
+          Percent_Black_Alone +
+          Median_House_Value +
+          Median_Rent_ +
+          Income_Gini_Coefficient_,
+          data=chicago@data)
+
+library(car)
+vif(mod1)
+```
+
+5. The VIFs for female headed households, less than high school education, and percent black alone are not good. However, VIF 'cutoffs' are subjective...
+  * Go online and research a good/common 'cutoff' for VIF measures and provide your source. Use this 'cutoff' to assess the collinearity of the above model.
+    ```{r eval=F}
+    "
+    The cutoff is 2.5, and  we should be concern when a VIF is greater than 2.50.
+    
+    refrences: 
+    http://statisticalhorizons.com/multicollinearity
+    http://psychologicalstatistics.blogspot.com/2013/11/multicollinearity-and-collinearity-in.html
+    
+    Also based on another source, we can use this: sqrt(vif(fit)) > 2
+    http://www.statmethods.net/stats/rdiagnostics.html
+    "
+    ```
+    
+```{r, fig.align='center'}
+    mod1_variables = data.frame(poulationDensity  = chicago@data$Population_Density, singleFemaleHeaded = chicago@data$Percent_of_children_in_single_female_headed_household, noCar = chicago@data$Percent_of_households_with_no_car, LessThanHighSchool = chicago@data$Percent_Less_than_High_School_Education_, aGraduateDegree = chicago@data$Percent_with_a_Graduate_Degree_, BlackAlone = chicago@data$Percent_Black_Alone, HouseValue = chicago@data$Median_House_Value, Rent = chicago@data$Median_Rent_, Gini = chicago@data$Income_Gini_Coefficient_)
+
+
+    mod1_variables_corr = cor(mod1_variables, use = "complete.obs", method = "pearson") # get correlations
+    
+    library('corrplot') #package corrplot
+    corrplot(mod1_variables_corr, method = "circle", addCoef.col = "black") #plot matrix
+ 
+#So, based on the correlation matrix, female headed households, less than high school education, and percent black are highly correlated.   
+```
+
+  * It is possible that these three variables are correlated with each other, by dropping *two* we may be able to improve the model.
+    ```{r}
+    mod1_red = lm(adj_violent_crimes ~ Population_Density + 
+                 Percent_of_households_with_no_car +  
+                 Percent_with_a_Graduate_Degree_ + 
+                 Percent_Black_Alone +
+                 Median_House_Value +
+                 Median_Rent_ +
+                 Income_Gini_Coefficient_,
+                 data=chicago@data)
+
+    vif(mod1_red)
+    ```
+  * Do you notice an improvement in VIFs?
+    ```{r eval=F}
+    "
+    Yes, now there is not any VIF value greater than 2.5
+    "
+    ```
+  * Perform an ANOVA test of these two nested models. Compare the full and reduced forms of the model.
+    ```{r}
+    # it tests whether reduction in the residual sum of squares are statistically significant or not
+    anova(mod1, mod1_red)
+    
+    # So based on the p-value reduction in the residual sum of squares are not statistically significant, and the reduced model would be fine
+    ```
+    
+As a final diagnostic we might want to examine the marginal contribution of each variable to the model, its 'extra sum of squares'. The `modelEffectSizes` function in the `lmSupport` library provides partial R-Squared values, which it calls the `pEta-sqr`. We see that the percent black alone variable has the highest partial R-square but we previously saw that race was correlated with other factors that might be related to violent crime. Should we have dropped race from the model and included education and female headed households? Understanding that race is an important factor for violent crime prevalence in Chicago is an important insight, but this should be tempered by the fact that race, as we saw, is highly correlated with other factors that are also associated with crime. Its very hard, many would say impossible, to make causal statements using a model like this. Causal statments would be of the nature, "a X% rise in the number of single parent female headed households causes a rise of X in the number of crimes." There is a maixm in statistics, "there is no causation without manipulation", that is, you can't establish causal relationships without experimental manipulation. In the social sciences "manipulations" are expensive, ethically complicated, and rarely done. This may not be the case in the physical sciences.
+
+We can examine the marginal contribution of each variable to the model, that is, its impact on the model given that all other variables are already in the model:
+
+```{r}
+library(lmSupport)  # You'll probably need to install this one
+# Think seriously about what we are measuring here (read the package help for more details)
+# When talking about these results, break down this test in terms of effect sizes...
+modelEffectSizes(mod1_red)
+```
+
+## Deliverables
+
+For this lab you have to make 4 regression models (you've already done one!). One model should be for violent crime (the variable used in the demonstration), the other three variables can be any type of crime selected from the Chicago data. For each model:
+
+  * Select variables that you hypothesize are associated with the outcome type of crime.
+  * Map the dependent variable (a type of crime)
+  * Develop a model by building it incrementally (using forward or backward selection). Test nested versions of the same model. Check residual plots, check for multicollinearity, examine the partial R-Square for each variable. Look at AIC, $R^2$, ANOVA, and any other diagnostics you can think of (see class notes).
+  * Interpret the model. Pay special attention to the sign and significance of each variable. Do the predictors align with your intuition about the association between social/economic characteristics and the frequency of crime?
+
+### Things to keep in mind
+Overall, do you notice any patterns across your four models? Are certain variables routinely associated with crime? Be careful in your interpretation of model coefficients. Why do you think these factors seem associated with crime? For example, in the model above we say that percent black was the most influential predictor of violent crime frequency. I wonder what the race variable is actually measuring, could it be a proxy for other variables that are highly correlated with the racial composition of neighborhoods and also influence crime? For example, 'latent' constructs like structural disadvantage and lack of access to opportunity?
+
+### Reference
+
+This lab has been adapted from a [lab developed by Dr. Seth Spielman](http://www.sethspielman.org/courses/geog5023/labs15/Lab_2015_Multiple_Regression.html) at the University of Colorado at Boulder.
+
+In order to determine the neighborhood level characteristics of crime, four dependent crime variables were modeled using crime data from the city of Chicago and Census Tract Level data from the American Community Survey.  In order to determine how much of the variance in different types of crime could be explained by independent variables, four multiple linear regression models were built and evaluated.  
+____________________________________________________________________
+## Functions
+```{r echo=FALSE}
+
+# classify and map features
+mapClassifyFeatures <- function(Data, inputVar, numClasses, type, color ){
+  
+  library(maptools)
+  
+  library(classInt)  # Library for creating clases
+  # Create Categories based on quantiles
+  cats = classIntervals(inputVar, n=numClasses, style= type)
+  library(RColorBrewer)
+  # Save palette as an object
+  pal = brewer.pal(numClasses, color) 
+  cols = findColours(cats, pal) 
+  
+  # Draw map using specificed data and colors
+  # lty=0 (line type) turns off tract borders
+  plot(Data, col=cols, lty=0)
+}
+
+```
+____________________________________________________________________
+
+## Model one
+
+### 1 - Variable Selection
+- How do the explanatory variables you chose reflect the crime type you are modeling? 
+```{r eval=F}
+```
+
+### 2 - Descriptive Statistics/Data Visualization
+- Summarize the data and/or provide a few visualizations (maps, plots). Map the dependent variable (a type of crime)
+<!-- 
+mapClassifyFeatures(Data, inputVar, numClasses, type, color )
+boxplot(chicago@data$Number_of_violent_crimes)
+-->
+```{r echo=FALSE, fig.align='center'}
+
+```
+
+- What general trends do you observe?
+```{r eval=F}
+```
+
+### 3 - Data Preparation
+- Did you combine any fields, create dummy variables, transform variables, subset the data, etc?
+<!-- 
+shapiro.test
+-->
+
+### 4 - 1st Model Specification
+- LM summary 
+- Interpret model coefficients/p-values, model rˆ2/F-Test
+- Model Diagnostics 
+    - Residual plots
+        - Heteroskedasticity (non-constant variance)
+        <!-- 
+        # Evaluate homoscedasticity
+        library(zoo)
+        library(lmtest)
+        bptest(regmodel)
+        # If the test is positive (low p value), you should see if any transformation of the dependent          variable helps you eliminate heteroscedasticity --> 
+        - Influential observations (possible outliers)
+        <!-- library(car)
+        # Assessing Outliers
+          outlierTest(fit) # Bonferonni p-value for most extreme obs
+          leveragePlots(fit) # leverage plots
+        -->
+        - pattern (Nonlinearity)
+        <!-- when the residuals bounce randomly around the 0 line, it suggests that the assumption that the relationship is linear is reasonable. 
+        # Evaluate Nonlinearity
+        # component + residual plot 
+        crPlots(fit)
+        -->
+        - Normality of Residuals
+        <!-- 
+        qqPlot(fit, main="QQ Plot") #qq plot for studentized resid 
+        
+        # distribution of studentized residuals
+        library(MASS)
+        sresid <- studres(fit) 
+        hist(sresid, freq=FALSE, 
+           main="Distribution of Studentized Residuals")
+        xfit<-seq(min(sresid),max(sresid),length=40) 
+        yfit<-dnorm(xfit) 
+        lines(xfit, yfit)
+        -->
+        - Non-independence of Errors
+        <!-- 
+        # Test for Autocorrelated Errors (verifies if the residuals from a linear model are correlated           or not)
+          library(car)
+          durbinWatsonTest(fit)
+          
+          # The null hypothesis (H0H0) is that there is no correlation among residuals, i.e., they are           independent.
+          # The alternative hypothesis (HaHa) is that residuals are autocorrelated.
+        -->
+    - map residuals
+    <!--When the residuals from a model show clear spatial patterns there is evidence of some sort of     missing variable 
+    "jenks", resid(model), "YlOrRd"
+    -->
+    - check for multicollinearity (VIF) (Note: the cutoff is 2.5)
+    <!--
+    # Evaluate Collinearity
+    library(car)
+    vif(fit) # variance inflation factors 
+    sqrt(vif(fit)) > 2 # problem?
+    -->
+    - examine the partial R-Square for each variable
+
+### 5 - Model adjustment
+- What variables did you add/remove?
+- check for multicollinearity (VIF)
+- Diagnostic tests: AIC, Anova, extra sum of squares (modelEffectSizes, partial R-Squared), etc. 
+- Did you process the data any further (i.e. additional transformations)? Explain. [*]
+
+### 6 - Further model specification/diagnostics 
+- Follow the same workflow as the "1st Model Specification"/"Model adjustment" sections. You should aim to run through ˜2 more model iterations.  Keep in mind that your final model does not need to be perfect, you will be explaining its shortcomings in the final model summary.
+
+
+### 7 - Final Model Summary
+* In what ways does your final model explain the crime type you chose? Pay special attention to the sign and significance of each variable. Do the predictors align with your intuition about the association between social/economic characteristics and the frequency of crime?
+
+* What shortcomings does your final model have?
+      + In what ways is the model's explanatory power limited?
+      + Does the model still violate assumptions of OLS regression (i.e. heteroskedasticity, residual     [spatial]autocorrelation)? (Explain how these problems limit your ability to draw inferences about the crime type you chose. )
+      + How might the characteristics of the variables you chose influence these problems? [*]
+  
+  
+____________________________________________________________________
+
+## Model one: Modified Demo: Violent Crime Model
+
+### 1 - Variable Selection
+1-1- How do the explanatory variables you chose reflect the crime type you are modeling? 
+
+```{r eval=F}
+"
+The Type of Crime (Dependent Variable): Number_of_violent_crimes
+Variables of Interest (Independent Variable):
+Population_Density 
+Percent_with_a_Graduate_Degree_ 
+Percent_Black_Alone 
+Median_House_Value 
+Median_Rent_ 
+Income_Gini_Coefficient_ 
+Drug_Abuse
+Percent_Employed_in_Service_Occupations 
+Percent_of_children_in_single_female_headed_household
+PCT_of_Households_with_cash_public_assistance 
+
+For the number of violent crimes, I started with a set of related variables. for example, higher population density in a neighborhood leads to higher crime rate, higher educated people decreases the number of violent crimes, percentage of black alone can be considered as a potential factor for increasing the number of violent crimes, poor neighborhoods (low house value, low rent, low income, less employed, households who recieve public assistance) also can be anoher a potential factor, higher druge abuse leads to more violent crimes.
+
+# I first run these above variables in univariant regression against one another.
+
+plot(sqrt(Number_of_violent_crimes) ~ (Population_Density), data = chicago@data)
+violent_crimes <- lm(sqrt(Number_of_violent_crimes) ~ Population_Density, data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  2.501e-06,	Adjusted R-squared:  -0.001517 
+F-statistic: 0.001645 on 1 and 658 DF,  p-value: 0.9677
+
+plot(sqrt(Number_of_violent_crimes) ~ (Percent_with_a_Graduate_Degree_), data = chicago@data)
+violent_crimes <- lm(sqrt(Number_of_violent_crimes) ~ Percent_with_a_Graduate_Degree_, data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.09606,	Adjusted R-squared:  0.09468 
+F-statistic: 69.92 on 1 and 658 DF,  p-value: 3.679e-16
+
+plot(sqrt(chicago@data$Number_of_violent_crimes) , chicago@data$Percent_Black_Alon)
+violent_crimes <- lm(sqrt(Number_of_violent_crimes) ~ (Percent_Black_Alone), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.4153,	Adjusted R-squared:  0.4144 
+F-statistic: 467.4 on 1 and 658 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Number_of_violent_crimes) ~ (Median_House_Value), data = chicago@data)
+violent_crimes <- lm(sqrt(Number_of_violent_crimes) ~ (Median_House_Value), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.1826,	Adjusted R-squared:  0.1814 
+F-statistic: 145.7 on 1 and 652 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Number_of_violent_crimes) ~ (Median_Rent_), data = chicago@data)
+violent_crimes <- lm(sqrt(Number_of_violent_crimes) ~ (Median_Rent_), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.01443,	Adjusted R-squared:  0.01293 
+F-statistic: 9.579 on 1 and 654 DF,  p-value: 0.002053
+
+plot(sqrt(Number_of_violent_crimes) ~ (Income_Gini_Coefficient_), data = chicago@data)
+violent_crimes <- lm(sqrt(Number_of_violent_crimes) ~ (Income_Gini_Coefficient_), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.0484,	Adjusted R-squared:  0.04696 
+F-statistic: 33.47 on 1 and 658 DF,  p-value: 1.12e-08
+
+plot(sqrt(Number_of_violent_crimes) ~ (Drug_Abuse), data = chicago@data)
+violent_crimes <- lm(sqrt(Number_of_violent_crimes) ~ (Drug_Abuse), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.4169,	Adjusted R-squared:  0.416 
+F-statistic: 470.5 on 1 and 658 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Number_of_violent_crimes) ~ (Percent_Employed_in_Service_Occupations), data = chicago@data)
+violent_crimes <- lm(sqrt(Number_of_violent_crimes) ~ (Percent_Employed_in_Service_Occupations), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.1073,	Adjusted R-squared:  0.1059 
+F-statistic: 79.09 on 1 and 658 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Number_of_violent_crimes) ~ (Percent_of_children_in_single_female_headed_household), data = chicago@data)
+violent_crimes <- lm(sqrt(Number_of_violent_crimes) ~ (Percent_of_children_in_single_female_headed_household), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.3577,	Adjusted R-squared:  0.3568 
+F-statistic: 366.5 on 1 and 658 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Number_of_violent_crimes) ~ (PCT_of_Households_with_cash_public_assistance), data = chicago@data)
+violent_crimes <- lm(sqrt(Number_of_violent_crimes) ~ (PCT_of_Households_with_cash_public_assistance ), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.3643,	Adjusted R-squared:  0.3633 
+F-statistic: 377.1 on 1 and 658 DF,  p-value: < 2.2e-16
+
+Most of the variables are significant, except, Percent_with_a_Graduate_Degree_, Percent_Employed_in_Service_occupations, Percent_of_children_in_single_female_headed_household, and Income_Gini_Coefficient_.
+"
+```
+
+### 2 - Descriptive Statistics/Data Visualization
+2-1- Summarize the data and/or provide a few visualizations (maps, plots). Map the dependent variable (a type of crime)
+
+```{r echo=FALSE, fig.align='center'}
+summary(chicago$Number_of_violent_crimes)
+mapClassifyFeatures(chicago, chicago$Number_of_violent_crimes, 7, "quantile", "YlGnBu" )
+hist(chicago@data$Number_of_violent_crimes, col = "beige", main = "number of violent crimes")
+boxplot(chicago@data$Number_of_violent_crimes,
+        col = "beige",
+        ylab = "number of violent crimes")
+```
+
+2-2- What general trends do you observe?
+
+```{r eval=F}
+"Based on the map of number of violent crimes, we can see that this crime is not random and is clustered. Box plot shows that there are some outliers in the data."
+```
+
+### 3 - Data Preparation
+3-1- Did you combine any fields, create dummy variables, transform variables, subset the data, etc?
+
+```{r }
+# Box plot shows that data is not normal and there are some outliers in the data. Square root transform is used to normalize the data 
+
+# Shapiro-Wilk normality test
+shapiro.test(chicago@data$Number_of_violent_crimes) # W = 0.86711, p-value < 2.2e-16
+shapiro.test(sqrt(chicago@data$Number_of_violent_crimes)) # W = 0.98138, p-value = 1.934e-07 (better)
+
+#Create a new variable called adj_violent_crimes that ‘adjusts’ for potential outliers.
+chicago$adj_violent_crimes = sqrt(chicago$Number_of_violent_crimes)
+# if we map the transformed data, we can see a random spatial patterns.
+```
+
+
+### 4 - 1st Model Specification
+4-1- LM summary 
+```{r echo=FALSE}
+mod1 = lm(adj_violent_crimes ~ Population_Density + 
+          Percent_with_a_Graduate_Degree_ +
+          Percent_Black_Alone +
+          Median_House_Value +
+          Median_Rent_ +
+          Drug_Abuse + 
+          Percent_Employed_in_Service_Occupations +
+          Percent_of_children_in_single_female_headed_household +
+          PCT_of_Households_with_cash_public_assistance +
+          Income_Gini_Coefficient_,
+          data=chicago@data)
+```
+
+```{r}
+summary(mod1)
+```
+4-2- Interpret model coefficients/p-values, model rˆ2/F-Test
+
+```{r eval=F}
+"Most of the variables are significant, except, Percent_with_a_Graduate_Degree_, Percent_Employed_in_Service_occupations, Percent_of_children_in_single_female_headed_household, and Income_Gini_Coefficient_.
+The R-square is high that means our dependent variales explains most of the variability of the adj_violent_crimes in the the regression model.
+The p-value of our model is very small and it means that there is a significant relationship between the variables in the regression model.
+Median_Rent_ and Income_Gini_Coefficient_ coefficients seems sucpitious, because their increase lead to increase in the violent crime
+"
+```
+
+4-3- Model Diagnostics 
+
+4-3-1- Residual plots
+    
+```{r}
+plot(mod1)
+hist(resid(mod1))
+plot(resid(mod1) ~ predict(mod1))
+abline(0, 0) # the horizon
+```
+    
+4-3-1-1- Heteroskedasticity (non-constant variance)
+
+```{r}
+# Evaluate heteroscedasticity
+# If the test is positive (low p value), you should see if any transformation of the dependent variable helps you eliminate heteroscedasticity
+library(zoo)
+library(lmtest)
+bptest(mod1)
+```
+
+```{r eval=F}
+" There is heteroscedasticity
+"
+```
+        
+4-3-1-2- Influential observations (possible outliers)
+```{r}
+# Bonferroni p-values to assesse Outliers
+library(car) 
+outlierTest(mod1) # Bonferonni p-value for most extreme obs
+```
+
+```{r eval=F}
+" There are 2 outliers based on Bonferroni test (19 and 312). But 237, 20, and 551 also are apparantly outliers based on the regression plots.
+"
+```
+        
+4-3-1-3- pattern (Nonlinearity)
+
+```{r}
+# When the residuals bounce randomly around the 0 line, it suggests that the assumption that the relationship is linear is reasonable
+# Evaluate Nonlinearity
+# component + residual plot 
+crPlots(mod1)
+```
+
+```{r eval=F}
+" Drug-Abuse and median house value are not linear.
+"
+```
+4-3-1-4- Normality of Residuals
+
+```{r}
+qqPlot(mod1, main="QQ Plot") #qq plot for studentized resid 
+    
+# distribution of studentized residuals
+library(MASS)
+sresid <- studres(mod1) 
+hist(sresid, freq=FALSE, 
+   main="Distribution of Studentized Residuals")
+xfit<-seq(min(sresid),max(sresid),length=40) 
+yfit<-dnorm(xfit) 
+lines(xfit, yfit)
+
+#Null hypothesis residuals are normally distributed 
+shapiro.test(resid(mod1))
+```
+
+```{r eval=F}
+" Residuals are nearly normal
+"
+```    
+        
+4-3-1-5- Non-independence of Errors
+
+```{r}
+# Test for Autocorrelated Errors (verifies if the residuals from a linear model are correlated        or not)
+library(car)
+durbinWatsonTest(mod1)
+
+# The null hypothesis (H0H0) is that there is no correlation among residuals, i.e., they are           independent.
+# The alternative hypothesis (HaHa) is that residuals are autocorrelated.
+```
+
+```{r eval=F}
+" Residuals are autocorrelated
+"
+```   
+
+4-3-2- map residuals
+
+```{r echo=FALSE}
+# When the residuals from a model show clear spatial patterns there is evidence of some sort of     missing variable.
+mapClassifyFeatures(chicago, resid(mod1), 5, "jenks", "YlOrRd" )
+```
+
+```{r eval=F}
+"  There is not a clear spatial pattern in the residual map.
+"
+```  
+
+4-3-3- check for multicollinearity (VIF) (Note: the cutoff is 2.5)
+
+```{r }
+# Evaluate Collinearity
+library(car)
+vif(mod1) # variance inflation factors 
+```
+
+```{r eval=F}
+" 
+The cuttoff is 2.5, and here four of them are higher than this cuttoff and we should eliminate 3 of them.
+"
+``` 
+
+4-3-4- examine the partial R-Square for each variable
+
+```{r }
+library(lmSupport)
+modelEffectSizes(mod1)
+```
+
+```{r eval=F}
+" 
+From the table generated from this function, the pEta-sqr is highest for Drug_Abuse, at 0.1997, 
+and lowest for Percent_with_a_Graduate_Degree_, at 0.0001. These pEta-sqr values reflect the marginal contribution of each variable to the model, its impact on the model given that all other variables 
+are already in the model. 
+"
+``` 
+
+### 5 - Model adjustment
+5-1- What variables did you add/remove?
+
+```{r eval=F}
+"A VIF test was conducted on the model to check variable multicolinearity. Results indicated that some variables may have correlations with one another. To compensate, 3 of the them, Percent_Black_Alone ,
+Percent_of_children_in_single_female_headed_household and Percent_with_a_Graduate_Degree_ , were omitted."
+```
+
+```{r echo=FALSE}
+mod1_red1 = lm(adj_violent_crimes ~ Population_Density + 
+          Median_House_Value +
+          Median_Rent_ +
+          Drug_Abuse + 
+          Percent_Employed_in_Service_Occupations +
+          PCT_of_Households_with_cash_public_assistance +
+          Income_Gini_Coefficient_,
+          data=chicago@data)
+```
+
+5-2- check for multicollinearity (VIF)
+
+A VIF on reduced model is provided below. Removing these variables did improve the VIFs:
+
+```{r echo=FALSE}
+# Evaluate Collinearity
+library(car)
+vif(mod1_red1) # variance inflation factors 
+```
+
+5-3- Diagnostic tests: AIC, Anova, extra sum of squares (modelEffectSizes, partial R-Squared), etc. 
+```{r }
+# Akaike Information Criterion (AIC)
+# Small values are desirable
+AIC(mod1) # 2458.928
+AIC(mod1_red1) # 2530.21
+# AIC has increased
+
+#Anova: it tests whether reduction in the residual sum of squares are statistically significant or not
+anova(mod1, mod1_red1)
+#Full model explains significantly more variance
+
+
+# extra sum of squares (modelEffectSizes, partial R-Squared)
+modelEffectSizes(mod1_red1)
+# Drug Abuse had the highest partial sum of squares value, at 0.2416, showing it contributed most to the violent crime model. Percent_Employed_in_Service_Occupations, on the other hand has the smallest partial sum of square
+```
+
+### 6 - Further model specification/diagnostics 
+6-1- Follow the same workflow as the "1st Model Specification"/"Model adjustment" sections. You should aim to run through ˜2 more model iterations.  Keep in mind that your final model does not need to be perfect, you will be explaining its shortcomings in the final model summary.
+
+
+```{r }
+#I ran the model several times and here is the final model:
+
+mod1_final = lm(adj_violent_crimes ~ 
+                 Median_House_Value +
+                 Percent_of_children_in_single_female_headed_household  +
+                 sqrt(Drug_Abuse) ,
+                 data=chicago@data)
+
+summary(mod1_final)
+
+# Although it seems taht Drug Abuse does not have a linear relationship with violent crime, but the partial sum of squares value illustrate that it contributes most to the violent crime model. 
+
+# Percent_Black_Alon is significant but there are two groups of them in the plot violent crimes that we cannot model them here.
+
+# We tranform the Drug_Abuse using SQRT, and it significantly imrove the model. 
+
+# This model has the samllest AIC
+
+# Still this model has homoscedasticity and the residuals are autocorrelated.
+```
+
+
+### 7 - Final Model Summary
+7-1- In what ways does your final model explain the crime type you chose? Pay special attention to the sign and significance of each variable. Do the predictors align with your intuition about the association between social/economic characteristics and the frequency of crime?
+
+```{r eval=F}
+" To explain our crime type (number of violent crime, we came up with three variable that can explain the variation of out moeld better. 1) Median House Value: this variable is not very significant, but has a negative coefficient, and so its increase leads to decreasing in the number of violent crime, that is based on my prediction in the begining. 2) Percent of children in single female  headed household is the second significant variable in our model and with a positive coefficient has a direct relationship with number of violent crime. This predictor also align with my intuition about the association between social/economic characteristics and the number of violent crime. 3) Drug Abuse is the most significant variabel of this model. It has a positive coefficient that makes sense.
+"
+```
+7-2- What shortcomings does your final model have? In what ways is the model's explanatory power limited? Does the model still violate assumptions of OLS regression (i.e. heteroskedasticity, residual [spatial]autocorrelation)? (Explain how these problems limit your ability to draw inferences about the crime type you chose.) How might the characteristics of the variables you chose influence these problems? [*]
+```{r eval=F}
+"
+Our final model has a R-square of 0.6768 that is considered fine in a linear regression model, but still the results are not completly satisfying. First of all, it seems that the relationship between the the number of violent crime and drug dbuse, which is the most significant variabel of our model, is not linear. Making this assumption that we have only linear relationships resulted in homoscedasticity and autocorrelated residuals in our model. Furthurmore, suspected variables were removed, and the model re-tested.  In most cases, while the model’s VIFs were improved with this approach, the variance explained by the model (as measured by ANOVA), decreased.i.e., The full model explains significantly more variance.
+
+"
+```
+____________________________________________________________________
+
+
+## Model two: Vehicle Theft
+
+### 1 - Variable Selection
+1-1- How do the explanatory variables you chose reflect the crime type you are modeling? 
+
+```{r eval=F}
+"
+The Type of Crime (Dependent Variable): Vehicle_Theft
+Variables of Interest (Independent Variable):
+Percent_with_a_Graduate_Degree_ 
+Percent_Black_Alone 
+Median_House_Value 
+Number_of_property_crimes
+Weapons_Violation 
+Percent_Hispanic_
+Burglary
+Liquor_License
+Vandalism
+Percent_of_families_that_consist_of_married_couples
+Drug_Abuse
+
+For the number of violent crimes, I started with a set of related variables. for example, it seems that more graduate degree, and number of married couples can decrese Vehicle Theft, and on the other hand more Black Alone, property crimes, Weapons violation, Burglary, Drug Abuse, and Vandalism can increase Vehicle Theft. I am not sure aboutMedian House Value, Percent Hispanic, and Liquor License, but I like to investigate the data.
+
+
+# I first run these above variables in univariant regression against one another.
+
+plot(sqrt(Vehicle_Theft) ~ (Percent_with_a_Graduate_Degree_ ), data = chicago@data)
+violent_crimes <- lm(sqrt(Vehicle_Theft) ~ Percent_with_a_Graduate_Degree_ , data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.04863,	Adjusted R-squared:  0.04719 
+F-statistic: 33.64 on 1 and 658 DF,  p-value: 1.031e-08
+
+plot(sqrt(Vehicle_Theft) ~ (Percent_Black_Alone), data = chicago@data)
+violent_crimes <- lm(sqrt(Vehicle_Theft) ~ Percent_Black_Alone, data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.01896,	Adjusted R-squared:  0.01747 
+F-statistic: 12.72 on 1 and 658 DF,  p-value: 0.000389
+
+plot(sqrt(chicago@data$Vehicle_Theft) , chicago@data$Median_House_Value)
+violent_crimes <- lm(sqrt(Vehicle_Theft) ~ (Median_House_Value), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.01792,	Adjusted R-squared:  0.01642 
+F-statistic:  11.9 on 1 and 652 DF,  p-value: 0.0005975
+
+plot(sqrt(Vehicle_Theft) ~ (Number_of_property_crimes), data = chicago@data)
+violent_crimes <- lm(sqrt(Vehicle_Theft) ~ (Number_of_property_crimes), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.2424,	Adjusted R-squared:  0.2412 
+F-statistic: 210.5 on 1 and 658 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Vehicle_Theft) ~ (Weapons_Violation), data = chicago@data)
+violent_crimes <- lm(sqrt(Vehicle_Theft) ~ (Weapons_Violation), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.1787,	Adjusted R-squared:  0.1775 
+F-statistic: 143.2 on 1 and 658 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Vehicle_Theft) ~ (Percent_Hispanic_), data = chicago@data)
+violent_crimes <- lm(sqrt(Vehicle_Theft) ~ (Percent_Hispanic_), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.01386,	Adjusted R-squared:  0.01236 
+F-statistic: 9.248 on 1 and 658 DF,  p-value: 0.002452
+
+plot(sqrt(Vehicle_Theft) ~ (Burglary), data = chicago@data)
+violent_crimes <- lm(sqrt(Vehicle_Theft) ~ (Burglary), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.2952,	Adjusted R-squared:  0.2942 
+F-statistic: 275.7 on 1 and 658 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Vehicle_Theft) ~ (Liquor_License), data = chicago@data)
+violent_crimes <- lm(sqrt(Vehicle_Theft) ~ (Liquor_License), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.0478,	Adjusted R-squared:  0.04635 
+F-statistic: 33.03 on 1 and 658 DF,  p-value: 1.389e-08
+
+plot(sqrt(Vehicle_Theft) ~ (Vandalism), data = chicago@data)
+violent_crimes <- lm(sqrt(Vehicle_Theft) ~ (Vandalism), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.4178,	Adjusted R-squared:  0.417 
+F-statistic: 472.3 on 1 and 658 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Vehicle_Theft) ~ (Percent_of_families_that_consist_of_married_couples), data = chicago@data)
+violent_crimes <- lm(sqrt(Vehicle_Theft) ~ (Percent_of_families_that_consist_of_married_couples ), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.02854,	Adjusted R-squared:  0.02707 
+F-statistic: 19.33 on 1 and 658 DF,  p-value: 1.28e-05
+
+plot(sqrt(Vehicle_Theft) ~ (Drug_Abuse), data = chicago@data)
+violent_crimes <- lm(sqrt(Vehicle_Theft) ~ (Drug_Abuse), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.2267,	Adjusted R-squared:  0.2256 
+F-statistic: 192.9 on 1 and 658 DF,  p-value: < 2.2e-16
+
+
+All of the variables are significant, in the first one to one regression model test.
+"
+```
+
+### 2 - Descriptive Statistics/Data Visualization
+2-1- Summarize the data and/or provide a few visualizations (maps, plots). Map the dependent variable (a type of crime)
+
+```{r echo=FALSE, fig.align='center'}
+summary(chicago$Vehicle_Theft)
+mapClassifyFeatures(chicago, chicago$Vehicle_Theft, 7, "quantile", "YlGnBu" )
+hist(chicago@data$Vehicle_Theft, col = "beige", main = "number of violent crimes")
+boxplot(chicago@data$Vehicle_Theft,
+        col = "beige",
+        ylab = "number of violent crimes")
+```
+
+2-2- What general trends do you observe?
+
+```{r eval=F}
+"Based on the map of number of Vehicle Theft, we can see that this crime is not random and is clustered. Box plot shows that there are some outliers in the data."
+```
+
+### 3 - Data Preparation
+3-1- Did you combine any fields, create dummy variables, transform variables, subset the data, etc?
+
+```{r }
+# Box plot shows that data is not normal and there are some outliers in the data. Square root transform is used to normalize the data 
+
+# Shapiro-Wilk normality test
+shapiro.test(chicago@data$Vehicle_Theft) # W = 0.92161, p-value < 2.2e-16 < 2.2e-16
+shapiro.test(sqrt(chicago@data$Vehicle_Theft)) # W = 0.99351, p-value = 0.005998 (better)
+
+#Create a new variable called adj_Vehicle_Theft that ‘adjusts’ for potential outliers.
+chicago$adj_Vehicle_Theft = sqrt(chicago$Vehicle_Theft)
+# if we map the transformed data, we can see a random spatial patterns.
+```
+
+
+### 4 - 1st Model Specification
+4-1- LM summary 
+```{r echo=FALSE}
+mod1 = lm(adj_Vehicle_Theft ~ Population_Density + 
+          Percent_with_a_Graduate_Degree_ +
+          Percent_Black_Alone +
+          Median_House_Value +
+          Number_of_property_crimes +
+          Weapons_Violation +
+          Percent_Hispanic_ +
+          Burglary +
+          Liquor_License +
+          Vandalism +
+          Percent_of_families_that_consist_of_married_couples +
+          Drug_Abuse, 
+          data=chicago@data)
+```
+
+```{r}
+summary(mod1)
+```
+4-2- Interpret model coefficients/p-values, model rˆ2/F-Test
+
+```{r eval=F}
+"Most of the variables are significant, except, Population_Density, Weapons_Violation, Liquor_License, Percent_of_families_that_consist_of_married_couples, Drug_Abuse.
+
+The R-square is good (0.5244) that means our dependent variales explains half of the variability of the adj_Vehicle_Theft in the the regression model.
+
+The p-value of our model is very small and it means that there is a significant relationship between the variables in the regression model.
+
+Weapons_Violation coefficients seems sucpitious, because their increase lead to decrease in the violent crime
+"
+```
+
+4-3- Model Diagnostics 
+
+4-3-1- Residual plots
+    
+```{r}
+plot(mod1)
+hist(resid(mod1))
+plot(resid(mod1) ~ predict(mod1))
+abline(0, 0) # the horizon
+```
+    
+4-3-1-1- Heteroskedasticity (non-constant variance)
+
+```{r}
+# Evaluate heteroscedasticity
+# If the test is positive (low p value), you should see if any transformation of the dependent variable helps you eliminate heteroscedasticity
+library(zoo)
+library(lmtest)
+bptest(mod1)
+```
+
+```{r eval=F}
+" There is heteroscedasticity
+"
+```
+        
+4-3-1-2- Influential observations (possible outliers)
+```{r}
+# Bonferroni p-values to assesse Outliers
+library(car) 
+outlierTest(mod1) # Bonferonni p-value for most extreme obs
+```
+
+```{r eval=F}
+" There are 2 outliers based on Bonferroni test (19 and 520). But 481 also is apparantly outliers based on the regression plots.
+"
+```
+        
+4-3-1-3- pattern (Nonlinearity)
+
+```{r}
+# When the residuals bounce randomly around the 0 line, it suggests that the assumption that the relationship is linear is reasonable
+# Evaluate Nonlinearity
+# component + residual plot 
+crPlots(mod1)
+```
+
+```{r eval=F}
+" Number_of_property_crimes and median house value, and Vandalism are not linear.
+"
+```
+4-3-1-4- Normality of Residuals
+
+```{r}
+qqPlot(mod1, main="QQ Plot") #qq plot for studentized resid 
+    
+# distribution of studentized residuals
+library(MASS)
+sresid <- studres(mod1) 
+hist(sresid, freq=FALSE, 
+   main="Distribution of Studentized Residuals")
+xfit<-seq(min(sresid),max(sresid),length=40) 
+yfit<-dnorm(xfit) 
+lines(xfit, yfit)
+
+#Null hypothesis residuals are normally distributed 
+shapiro.test(resid(mod1))
+```
+
+```{r eval=F}
+" Residuals are nearly normal. It seems there are some outliers.
+"
+```    
+        
+4-3-1-5- Non-independence of Errors
+
+```{r}
+# Test for Autocorrelated Errors (verifies if the residuals from a linear model are correlated        or not)
+library(car)
+durbinWatsonTest(mod1)
+
+# The null hypothesis (H0H0) is that there is no correlation among residuals, i.e., they are           independent.
+# The alternative hypothesis (HaHa) is that residuals are autocorrelated.
+```
+
+```{r eval=F}
+" Residuals are autocorrelated
+"
+```   
+
+4-3-2- map residuals
+
+```{r echo=FALSE}
+# When the residuals from a model show clear spatial patterns there is evidence of some sort of     missing variable.
+mapClassifyFeatures(chicago, resid(mod1), 5, "jenks", "YlOrRd" )
+```
+
+```{r eval=F}
+"  There is not a clear spatial pattern in the residual map.
+"
+```  
+
+4-3-3- check for multicollinearity (VIF) (Note: the cutoff is 2.5)
+
+```{r }
+# Evaluate Collinearity
+library(car)
+vif(mod1) # variance inflation factors 
+```
+
+```{r eval=F}
+" 
+The cuttoff is 2.5, and here 8 of them are higher than this cuttoff and we should eliminate 3 of them.
+Percent_Black_Alone 
+Percent_Hispanic_
+Percent_of_families_that_consist_of_married_couples
+Percent_with_a_Graduate_Degree_ 
+Median_House_Value 
+Weapons_Violation
+Burglary
+Vandalism
+"
+``` 
+
+4-3-4- examine the partial R-Square for each variable
+
+```{r }
+library(lmSupport)
+modelEffectSizes(mod1)
+```
+
+```{r eval=F}
+" 
+From the table generated from this function, the pEta-sqr is highest for Vandalism, at 0.0845, 
+and lowest for Liquor_License, at 0.0001. These pEta-sqr values reflect the marginal contribution of each variable to the model, its impact on the model given that all other variables 
+are already in the model. 
+"
+``` 
+
+### 5 - Model adjustment
+5-1- What variables did you add/remove?
+
+```{r eval=F}
+"A VIF test was conducted on the model to check variable multicolinearity. Results indicated that 8 variables may have correlations with one another. To compensate, 7 of the them were omitted:,
+
+Percent_Black_Alone 
+Percent_Hispanic_
+Percent_of_families_that_consist_of_married_couples
+Percent_with_a_Graduate_Degree_
+Median_House_Value 
+Weapons_Violation
+Burglary"
+```
+
+```{r echo=FALSE}
+mod1_red1 = lm(adj_Vehicle_Theft ~ Population_Density + 
+          Number_of_property_crimes +
+          Liquor_License +
+          Vandalism +
+          Drug_Abuse,
+          data=chicago@data)
+```
+
+5-2- check for multicollinearity (VIF)
+
+A VIF on reduced model is provided below. Removing these variables did improve the VIFs:
+
+```{r echo=FALSE}
+# Evaluate Collinearity
+library(car)
+vif(mod1_red1) # variance inflation factors 
+```
+
+5-3- Diagnostic tests: AIC, Anova, extra sum of squares (modelEffectSizes, partial R-Squared), etc. 
+```{r }
+# Akaike Information Criterion (AIC)
+# Small values are desirable
+AIC(mod1) # 1980.626
+AIC(mod1_red1) # 2058.176
+# AIC has increased
+
+#Anova: it tests whether reduction in the residual sum of squares are statistically significant or not
+#anova(mod1, mod1_red1)
+#I do not know why Anova does not work
+
+
+# extra sum of squares (modelEffectSizes, partial R-Squared)
+modelEffectSizes(mod1_red1)
+# Vandalism had the highest partial sum of squares value, at 0.1973, showing it contributed most to the violent crime model. Drug_Abuse, on the other hand has the smallest partial sum of square
+```
+
+### 6 - Further model specification/diagnostics 
+6-1- Follow the same workflow as the "1st Model Specification"/"Model adjustment" sections. You should aim to run through ˜2 more model iterations.  Keep in mind that your final model does not need to be perfect, you will be explaining its shortcomings in the final model summary.
+
+
+```{r }
+#I ran the model several more times and here is the final model:
+
+mod1_final = lm(adj_Vehicle_Theft ~ Population_Density + 
+            Liquor_License +
+            sqrt(Vandalism)+
+            sqrt(Drug_Abuse),
+            data=chicago@data)
+
+summary(mod1_final)
+
+# first of all, there were some outliers in the residuals. I tried to eliminate them, but it was an infinit loop. After eliminating Number_of_property_crimes, I did not have that problem. So It seems that thre are some outlires in the Number_of_property_crimes that affects the model.
+
+# We tranform the Vandalism and Drug_Abuse using SQRT, and it significantly improve the model. 
+
+# This model has the the smallest AIC (1952.287)
+
+# Still this model has homoscedasticity and the residuals are autocorrelated.
+
+# I eliminated some of the variables due to colinearity
+
+# Vandalism had the highest partial sum of squares value, at 0.1973, showing it contributed most to the violent crime model. Drug_Abuse, on the other hand has the smallest partial sum of square
+```
+
+
+### 7 - Final Model Summary
+7-1- In what ways does your final model explain the crime type you chose? Pay special attention to the sign and significance of each variable. Do the predictors align with your intuition about the association between social/economic characteristics and the frequency of crime?
+
+```{r eval=F}
+" To explain our crime type (number of Vehicle Theft, we came up with four variable that can explain the variation of our model better. 
+1) Population_Density: this variable is significant, its increase leads to increasing in the number of violent crime. 2) Liquor_License is a fine variable in our model and with a positive coefficient has a direct relationship with number of Vehicle Theft. This predictor also align with my intuition about the association between social/economic characteristics and the number of Vehicle_Theft. 3) vandalism was the most statistically significant variable of this model. This may be due to vehicle theft and vandalism as co-occurring events, as well as increasing escalation of crimes and/or opportunity for crime. 4) Finally, Drug_Abuse that although is not a significant variable but differnet tests proved that it's an effective variable in our model. 
+"
+```
+7-2- What shortcomings does your final model have? In what ways is the model's explanatory power limited? Does the model still violate assumptions of OLS regression (i.e. heteroskedasticity, residual [spatial]autocorrelation)? (Explain how these problems limit your ability to draw inferences about the crime type you chose.) How might the characteristics of the variables you chose influence these problems? [*]
+```{r eval=F}
+"
+Our final model has a R-square of 0.5054 that is considered fine in a linear regression model, but still the results are not completly satisfying. First of all, still there are outliers in our residuals. It seems that deleting outliers in not an straight forward process. Also we still have heteroscedasticity and correlated residuals in our model. After examining the plots of residuals vs variables, the residuals for vandalism does not bounce randomly around the 0 line, it suggests that the assumption that the relationship is linear is not reasonable. But I ploted vandalism and Vehicle Theft together and it's clear that they have a very strong linear relationship. I do not know what is exactly the reason of this issue.
+"
+```
+____________________________________________________________________
+
+
+## Model Three: Burglary
+
+### 1 - Variable Selection
+1-1- How do the explanatory variables you chose reflect the crime type you are modeling? 
+
+```{r eval=F}
+"
+The Type of Crime (Dependent Variable): Burglary
+Variables of Interest (Independent Variable):
+Weapons_Violation
+Percent_Less_than_High_School_Education_
+Number_of_violent_crimes
+Number_of_property_crimes
+Vandalism
+Percent_of_children_in_single_female_headed_household
+Disorderly_Conduct
+
+For the number of Burglaries, I started with a set of related variables. for example, it seems that the increase in all of this variables can increase Vehicle Theft.
+
+# I first run these above variables in univariant regression against one another.
+
+plot(sqrt(Burglary) ~ (Weapons_Violation ), data = chicago@data)
+violent_crimes <- lm(sqrt(Burglary) ~ (Weapons_Violation) , data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.3537,	Adjusted R-squared:  0.3526 
+F-statistic: 349.6 on 1 and 639 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Burglary) ~ sqrt(Median_Rent_), data = chicago@data)
+violent_crimes <- lm(sqrt(Burglary) ~ Median_Rent_, data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  2.248e-05,	Adjusted R-squared:  -0.001552 
+F-statistic: 0.01427 on 1 and 635 DF,  p-value: 0.9049
+
+plot(sqrt(chicago@data$Burglary) , (chicago@data$Percent_Less_than_High_School_Education_))
+violent_crimes <- lm(sqrt(Burglary) ~ (Percent_Less_than_High_School_Education_), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.0165,	Adjusted R-squared:  0.01496 
+F-statistic: 10.72 on 1 and 639 DF,  p-value: 0.001117
+
+plot(sqrt(Burglary) ~ (Number_of_violent_crimes), data = chicago@data)
+violent_crimes <- lm(sqrt(Burglary) ~ (Number_of_violent_crimes), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.4443,	Adjusted R-squared:  0.4435 
+F-statistic:   511 on 1 and 639 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Burglary) ~ (Number_of_property_crimes), data = chicago@data)
+violent_crimes <- lm(sqrt(Burglary) ~ (Number_of_property_crimes), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.3026,	Adjusted R-squared:  0.3015 
+F-statistic: 277.3 on 1 and 639 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Burglary) ~ (Population_Density), data = chicago@data)
+violent_crimes <- lm(sqrt(Burglary) ~ (Population_Density), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.01085,	Adjusted R-squared:  0.009299 
+F-statistic: 7.007 on 1 and 639 DF,  p-value: 0.008319
+
+plot(sqrt(Burglary) ~ (Vandalism), data = chicago@data)
+violent_crimes <- lm(sqrt(Burglary) ~ (Vandalism), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.6047,	Adjusted R-squared:  0.6041 
+F-statistic: 977.4 on 1 and 639 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Burglary) ~ sqrt(Percent_of_children_in_single_female_headed_household), data = chicago@data)
+violent_crimes <- lm(sqrt(Burglary) ~ (Percent_of_children_in_single_female_headed_household), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.0744,	Adjusted R-squared:  0.07295 
+F-statistic: 51.36 on 1 and 639 DF,  p-value: 2.126e-12
+
+plot(sqrt(Burglary) ~ sqrt(Percent_Employed_in_Service_Occupations), data = chicago@data)
+violent_crimes <- lm(sqrt(Burglary) ~ sqrt(Percent_Employed_in_Service_Occupations), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.4178,	Adjusted R-squared:  0.417 
+F-statistic: 472.3 on 1 and 658 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Burglary) ~ (Disorderly_Conduct), data = chicago@data)
+violent_crimes <- lm(sqrt(Burglary) ~ (Disorderly_Conduct ), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.1987,	Adjusted R-squared:  0.1975 
+F-statistic: 158.5 on 1 and 639 DF,  p-value: < 2.2e-16
+
+
+Most of the variables are significant, in the first 'one to one' regression model test. I eliminated , Median_Rent_, Population_Density and Percent_Employed_in_Service_Occupations because I did not find a linear relationship between them and burglary
+"
+```
+
+### 2 - Descriptive Statistics/Data Visualization
+2-1- Summarize the data and/or provide a few visualizations (maps, plots). Map the dependent variable (a type of crime)
+
+```{r echo=FALSE, fig.align='center'}
+summary(chicago$Burglary)
+mapClassifyFeatures(chicago, chicago$Burglary, 7, "quantile", "YlGnBu" )
+hist(chicago@data$Burglary, col = "beige", main = "number of violent crimes")
+boxplot(chicago@data$Burglary,
+        col = "beige",
+        ylab = "number of violent crimes")
+```
+
+2-2- What general trends do you observe?
+
+```{r eval=F}
+"Based on the map of number of Burglary, we can see that this crime is not random and is clustered. Box plot shows that there are some outliers in the data."
+```
+
+### 3 - Data Preparation
+3-1- Did you combine any fields, create dummy variables, transform variables, subset the data, etc?
+
+```{r }
+# Box plot shows that data is not normal and there are some outliers in the data. Square root transform is used to normalize the data 
+
+# Shapiro-Wilk normality test
+shapiro.test(chicago@data$Burglary) # W = 0.92161, p-value < 2.2e-16 < 2.2e-16
+shapiro.test(sqrt(chicago@data$Burglary)) # W = 0.99351, p-value = 0.005998 (better)
+
+#Create a new variable called adj_Burglary that ‘adjusts’ for potential outliers.
+chicago$adj_Burglary = sqrt(chicago$Burglary)
+# if we map the transformed data, we can see a random spatial patterns.
+```
+
+
+### 4 - 1st Model Specification
+4-1- LM summary 
+```{r echo=FALSE}
+mod1 = lm(adj_Burglary ~ Weapons_Violation +
+          Percent_Less_than_High_School_Education_ +
+          Number_of_violent_crimes +
+          Number_of_property_crimes +
+          Vandalism + 
+          Percent_of_children_in_single_female_headed_household +
+          Disorderly_Conduct, 
+          data=chicago@data)
+```
+
+```{r}
+summary(mod1)
+```
+4-2- Interpret model coefficients/p-values, model rˆ2/F-Test
+
+```{r eval=F}
+"Most of the variables are significant, except, Number_of_violent_crimes, Percent_of_children_in_single_female_headed_household, and Disorderly_Conduct.
+
+The R-square is fine (0.6204) that means our dependent variales explains msot of the variability of the adj_Burglary in the the regression model.
+
+The p-value of our model is very small and it means that there is a significant relationship between the variables in the regression model.
+
+Percent_of_children_in_single_female_headed_household and Percent_Less_than_High_School_Education_ coefficients seems sucpitious, because their increase lead to decrease in the violent crime
+"
+```
+
+4-3- Model Diagnostics 
+
+4-3-1- Residual plots
+    
+```{r}
+plot(mod1)
+hist(resid(mod1))
+plot(resid(mod1) ~ predict(mod1))
+abline(0, 0) # the horizon
+```
+    
+4-3-1-1- Heteroskedasticity (non-constant variance)
+
+```{r}
+# Evaluate heteroscedasticity
+# If the test is positive (low p value), you should see if any transformation of the dependent variable helps you eliminate heteroscedasticity
+library(zoo)
+library(lmtest)
+bptest(mod1)
+```
+
+```{r eval=F}
+" There is heteroscedasticity
+"
+```
+        
+4-3-1-2- Influential observations (possible outliers)
+```{r}
+# Bonferroni p-values to assesse Outliers
+library(car) 
+outlierTest(mod1) # Bonferonni p-value for most extreme obs
+```
+
+```{r eval=F}
+" There are 1 outliers based on Bonferroni test (82). But 520, 235, 420, 1nd 433 also is apparantly outliers based on the regression plots.
+"
+```
+        
+4-3-1-3- pattern (Nonlinearity)
+
+```{r}
+# When the residuals bounce randomly around the 0 line, it suggests that the assumption that the relationship is linear is reasonable
+# Evaluate Nonlinearity
+# component + residual plot 
+crPlots(mod1)
+```
+
+```{r eval=F}
+" Vandalism are not linear.
+"
+```
+4-3-1-4- Normality of Residuals
+
+```{r}
+qqPlot(mod1, main="QQ Plot") #qq plot for studentized resid 
+    
+# distribution of studentized residuals
+library(MASS)
+sresid <- studres(mod1) 
+hist(sresid, freq=FALSE, 
+   main="Distribution of Studentized Residuals")
+xfit<-seq(min(sresid),max(sresid),length=40) 
+yfit<-dnorm(xfit) 
+lines(xfit, yfit)
+
+#Null hypothesis residuals are normally distributed 
+shapiro.test(resid(mod1))
+```
+
+```{r eval=F}
+" Residuals are nearly normal. It seems there are some outliers.
+"
+```    
+        
+4-3-1-5- Non-independence of Errors
+
+```{r}
+# Test for Autocorrelated Errors (verifies if the residuals from a linear model are correlated        or not)
+library(car)
+durbinWatsonTest(mod1)
+
+# The null hypothesis (H0H0) is that there is no correlation among residuals, i.e., they are           independent.
+# The alternative hypothesis (HaHa) is that residuals are autocorrelated.
+```
+
+```{r eval=F}
+" Residuals are autocorrelated
+"
+```   
+
+4-3-2- map residuals
+
+```{r echo=FALSE}
+# When the residuals from a model show clear spatial patterns there is evidence of some sort of     missing variable.
+mapClassifyFeatures(chicago, resid(mod1), 5, "jenks", "YlOrRd" )
+```
+
+```{r eval=F}
+"  There is not a clear spatial pattern in the residual map.
+"
+```  
+
+4-3-3- check for multicollinearity (VIF) (Note: the cutoff is 2.5)
+
+```{r }
+# Evaluate Collinearity
+library(car)
+vif(mod1) # variance inflation factors 
+```
+
+```{r eval=F}
+" 
+The cuttoff is 2.5, and here 2 of them are higher than this cuttoff and we should eliminate 1 of them.
+Number_of_violent_crimes
+Vandalism
+"
+``` 
+
+4-3-4- examine the partial R-Square for each variable
+
+```{r }
+library(lmSupport)
+modelEffectSizes(mod1)
+```
+
+```{r eval=F}
+" 
+From the table generated from this function, the pEta-sqr is highest for Vandalism, at 0.2163, 
+and lowest for Percent_of_children_in_single_female_headed_household, at 0.0006. These pEta-sqr values reflect the marginal contribution of each variable to the model, its impact on the model given that all other variables 
+are already in the model. 
+"
+``` 
+
+### 5 - Model adjustment
+5-1- What variables did you add/remove?
+
+```{r eval=F}
+"A VIF test was conducted on the model to check variable multicolinearity. Results indicated that 2 variables may have correlations with one another. To compensate, 1 of the them were omitted:,
+I emiminated Number_of_violent_crimes.
+"
+```
+
+```{r echo=FALSE}
+mod1_red1 = lm(adj_Burglary ~ Weapons_Violation +
+          Percent_Less_than_High_School_Education_ +
+          Number_of_property_crimes +
+          Vandalism +
+          Percent_of_children_in_single_female_headed_household +
+          Disorderly_Conduct,
+          data=chicago@data)
+```
+
+5-2- check for multicollinearity (VIF)
+
+A VIF on reduced model is provided below. Removing these variables did improve the VIFs:
+
+```{r echo=FALSE}
+# Evaluate Collinearity
+library(car)
+vif(mod1_red1) # variance inflation factors 
+```
+
+```{r eval=F}
+"now Weapons_Violation and Vandalism are colinear.
+"
+```
+
+5-3- Diagnostic tests: AIC, Anova, extra sum of squares (modelEffectSizes, partial R-Squared), etc. 
+```{r }
+# Akaike Information Criterion (AIC)
+# Small values are desirable
+AIC(mod1) # 2042.116
+AIC(mod1_red1) # 2040.859
+# AIC has decresed
+
+#Anova: it tests whether reduction in the residual sum of squares are statistically significant or not
+#anova(mod1, mod1_red1)
+#I do not know why Anova does not work
+
+
+# extra sum of squares (modelEffectSizes, partial R-Squared)
+modelEffectSizes(mod1_red1)
+# Vandalism had the highest partial sum of squares value, at 0.1973, showing it contributed most to the violent crime model. Percent_of_children_in_single_female_headed_household, on the other hand has the smallest partial sum of square
+```
+
+### 6 - Further model specification/diagnostics 
+6-1- Follow the same workflow as the "1st Model Specification"/"Model adjustment" sections. You should aim to run through ˜2 more model iterations.  Keep in mind that your final model does not need to be perfect, you will be explaining its shortcomings in the final model summary.
+
+
+```{r }
+#I ran the model several more times and here is the final model:
+
+mod1_final = lm(adj_Burglary ~ 
+            Percent_Less_than_High_School_Education_ +
+            Weapons_Violation +
+            sqrt(Vandalism),
+            data=chicago@data)
+
+summary(mod1_final)
+
+# first of all, there were some outliers in the residuals. I tried to eliminate them, but it was an infinit loop again the same as the previous model. After eliminating Number_of_property_crimes, I did not have that problem. So It seems that thre are some outlires in the Number_of_property_crimes that affects the model.
+
+# I eliminated Percent_of_children_in_single_female_headed_household and Disorderly_Conduct because there were not significant.
+
+# We tranform the Vandalism and it significantly improve the model. 
+
+# This model has the the smallest AIC (1984)
+
+# I eliminated Number_of_violent_crimes due to colinearity
+
+# Still this model has homoscedasticity and the residuals are autocorrelated. But we do not have outliers in the model
+
+# I removed Weapons_Violation once due to the colinearity, but I added back Weapons_Violation to model and now we do not have collinearity.
+
+# Vandalism had the highest partial sum of squares value, showing it contributed most to the violent crime model. Drug_Abuse, on the other hand Percent_Less_than_High_School_Education_ has the smallest partial sum of square
+```
+
+
+### 7 - Final Model Summary
+7-1- In what ways does your final model explain the crime type you chose? Pay special attention to the sign and significance of each variable. Do the predictors align with your intuition about the association between social/economic characteristics and the frequency of crime?
+
+```{r eval=F}
+" To explain our crime type (number of Burglary here, we came up with three variable that can explain the variation of our model better. 
+1) Percent_Less_than_High_School_Education_: this variable is significant, and its increase leads to deacreasing in the number of violent crime. This predictor does not align with my intuition about the association between social/economic characteristics and the number of Burglary. 2) Weapons_Violation is a significant variable too and with a positive coefficient has a direct relationship with number of Vehicle Theft.  3) vandalism was the most statistically significant variable of this model. This may be due to Burglary and vandalism as co-occurring events, as well as increasing escalation of crimes and/or opportunity for crime.
+"
+```
+7-2- What shortcomings does your final model have? In what ways is the model's explanatory power limited? Does the model still violate assumptions of OLS regression (i.e. heteroskedasticity, residual [spatial]autocorrelation)? (Explain how these problems limit your ability to draw inferences about the crime type you chose.) How might the characteristics of the variables you chose influence these problems? [*]
+```{r eval=F}
+"
+Our final model has a R-square of 0.6461 that is considered fine in a linear regression model, but still the model still violate assumptions of OLS regression. we still have heteroscedasticity and correlated residuals in our model. After examining the plots of residuals vs variables, the residuals for vandalism does not bounce randomly around the 0 line, it suggests that the assumption that the relationship is linear is not reasonable. But I ploted vandalism and Vehicle Theft together and it's clear that they have a very strong linear relationship. After using vandalism for two model, I think there is an issue in this variable that we cannot eliminate heteroscedasticity and correlated residuals in our model.
+"
+```
+____________________________________________________________________
+
+## Model four: Weapons Violation
+
+### 1 - Variable Selection
+1-1- How do the explanatory variables you chose reflect the crime type you are modeling? 
+
+```{r eval=F}
+"
+The Type of Crime (Dependent Variable): Weapons_Violation
+Variables of Interest (Independent Variable):
+Number_of_violent_crimes
+Number_of_property_crimes
+Homicides
+Percent_of_children_in_single_female_headed_household
+PCT_of_Households_with_cash_public_assistance
+Disorderly_Conduct
+
+For the number of Weapons_Violation, I started with a set of related variables. It seems that the increase in all of this variables can increase Vehicle Theft.
+
+# I first run these above variables in univariant regression against one another.
+
+plot(sqrt(Weapons_Violation) ~ (Number_of_violent_crimes), data = chicago@data)
+violent_crimes <- lm(sqrt(Weapons_Violation) ~ (Number_of_violent_crimes) , data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.6692,	Adjusted R-squared:  0.6686 
+F-statistic:  1288 on 1 and 637 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Weapons_Violation) ~ (Number_of_property_crimes), data = chicago@data)
+violent_crimes <- lm(sqrt(Weapons_Violation) ~ (Number_of_property_crimes), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.1621,	Adjusted R-squared:  0.1608 
+F-statistic: 123.2 on 1 and 637 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Weapons_Violation) ~ (Homicides), data = chicago@data)
+violent_crimes <- lm(sqrt(Weapons_Violation) ~ (Homicides), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.2517,	Adjusted R-squared:  0.2506 
+F-statistic: 214.3 on 1 and 637 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Weapons_Violation) ~ (Number_of_property_crimes), data = chicago@data)
+violent_crimes <- lm(sqrt(Weapons_Violation) ~ (Number_of_property_crimes), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.3026,	Adjusted R-squared:  0.3015 
+F-statistic: 277.3 on 1 and 639 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Weapons_Violation) ~ (Percent_of_children_in_single_female_headed_household), data = chicago@data)
+violent_crimes <- lm(sqrt(Weapons_Violation) ~ (Percent_of_children_in_single_female_headed_household), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.361,	Adjusted R-squared:   0.36 
+F-statistic: 359.8 on 1 and 637 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Weapons_Violation) ~ (PCT_of_Households_with_cash_public_assistance), data = chicago@data)
+violent_crimes <- lm(sqrt(Weapons_Violation) ~ (PCT_of_Households_with_cash_public_assistance), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.391,	Adjusted R-squared:   0.39 
+F-statistic: 408.9 on 1 and 637 DF,  p-value: < 2.2e-16
+
+plot(sqrt(Weapons_Violation) ~ (Disorderly_Conduct), data = chicago@data)
+violent_crimes <- lm(sqrt(Weapons_Violation) ~ (Disorderly_Conduct), data = chicago@data)
+summary(violent_crimes)
+Multiple R-squared:  0.4476,	Adjusted R-squared:  0.4467 
+F-statistic: 516.1 on 1 and 637 DF,  p-value: < 2.2e-16
+
+Most of the variables are significant, in the first 'one to one' regression model test. I eliminated , MPercent_Hispanic_ because I did not find a linear relationship between them and Weapons_Violation
+"
+```
+
+### 2 - Descriptive Statistics/Data Visualization
+2-1- Summarize the data and/or provide a few visualizations (maps, plots). Map the dependent variable (a type of crime)
+
+```{r echo=FALSE, fig.align='center'}
+summary(chicago$Weapons_Violation)
+mapClassifyFeatures(chicago, chicago$Weapons_Violation, 7, "quantile", "YlGnBu" )
+hist(chicago@data$Weapons_Violation, col = "beige", main = "number of violent crimes")
+boxplot(chicago@data$Weapons_Violation,
+        col = "beige",
+        ylab = "number of violent crimes")
+```
+
+2-2- What general trends do you observe?
+
+```{r eval=F}
+"Based on the map of number of Weapons_Violation, we can see that this crime is not random and is clustered. Box plot shows that there are some outliers in the data."
+```
+
+### 3 - Data Preparation
+3-1- Did you combine any fields, create dummy variables, transform variables, subset the data, etc?
+
+```{r }
+# Box plot shows that data is not normal and there are some outliers in the data. Square root transform is used to normalize the data 
+
+# Shapiro-Wilk normality test
+shapiro.test(chicago@data$Weapons_Violation) # W = 0.92161, p-value < 2.2e-16 < 2.2e-16
+shapiro.test(sqrt(chicago@data$Weapons_Violation)) # W = 0.99351, p-value = 0.005998 (better)
+
+#Create a new variable called adj_Weapons_Violation that ‘adjusts’ for potential outliers.
+chicago$adj_Weapons_Violation = sqrt(chicago$Weapons_Violation)
+# if we map the transformed data, we can see a random spatial patterns.
+```
+
+
+### 4 - 1st Model Specification
+4-1- LM summary 
+```{r echo=FALSE}
+mod1 = lm(adj_Weapons_Violation ~ Number_of_violent_crimes +
+          Number_of_property_crimes + 
+          Homicides + 
+          Percent_of_children_in_single_female_headed_household + 
+          PCT_of_Households_with_cash_public_assistance + 
+          Disorderly_Conduct,
+          data=chicago@data)
+```
+
+```{r}
+summary(mod1)
+```
+4-2- Interpret model coefficients/p-values, model rˆ2/F-Test
+
+```{r eval=F}
+"Most of the variables are significant, except, Number_of_violent_crimes, Percent_of_children_in_single_female_headed_household, and Disorderly_Conduct.
+
+The R-square is fine (0.6204) that means our dependent variales explains msot of the variability of the adj_Weapons_Violation in the the regression model.
+
+The p-value of our model is very small and it means that there is a significant relationship between the variables in the regression model.
+
+Percent_of_children_in_single_female_headed_household and Percent_Less_than_High_School_Education_ coefficients seems sucpitious, because their increase lead to decrease in the violent crime
+"
+```
+
+4-3- Model Diagnostics 
+
+4-3-1- Residual plots
+    
+```{r}
+plot(mod1)
+hist(resid(mod1))
+plot(resid(mod1) ~ predict(mod1))
+abline(0, 0) # the horizon
+```
+    
+4-3-1-1- Heteroskedasticity (non-constant variance)
+
+```{r}
+# Evaluate heteroscedasticity
+# If the test is positive (low p value), you should see if any transformation of the dependent variable helps you eliminate heteroscedasticity
+library(zoo)
+library(lmtest)
+bptest(mod1)
+```
+
+```{r eval=F}
+" There is not heteroscedasticity
+"
+```
+        
+4-3-1-2- Influential observations (possible outliers)
+```{r}
+# Bonferroni p-values to assesse Outliers
+library(car) 
+outlierTest(mod1) # Bonferonni p-value for most extreme obs
+```
+
+```{r eval=F}
+" There are 1 outliers based on Bonferroni test (601).
+"
+```
+        
+4-3-1-3- pattern (Nonlinearity)
+
+```{r}
+# When the residuals bounce randomly around the 0 line, it suggests that the assumption that the relationship is linear is reasonable
+# Evaluate Nonlinearity
+# component + residual plot 
+crPlots(mod1)
+```
+
+```{r eval=F}
+" Number_of_violent_crimes  are not linear.
+"
+```
+4-3-1-4- Normality of Residuals
+
+```{r}
+qqPlot(mod1, main="QQ Plot") #qq plot for studentized resid 
+    
+# distribution of studentized residuals
+library(MASS)
+sresid <- studres(mod1) 
+hist(sresid, freq=FALSE, 
+   main="Distribution of Studentized Residuals")
+xfit<-seq(min(sresid),max(sresid),length=40) 
+yfit<-dnorm(xfit) 
+lines(xfit, yfit)
+
+#Null hypothesis residuals are normally distributed 
+shapiro.test(resid(mod1))
+```
+
+```{r eval=F}
+" Residuals are nearly normal. It seems there are a few outliers.
+"
+```    
+        
+4-3-1-5- Non-independence of Errors
+
+```{r}
+# Test for Autocorrelated Errors (verifies if the residuals from a linear model are correlated        or not)
+library(car)
+durbinWatsonTest(mod1)
+
+# The null hypothesis (H0H0) is that there is no correlation among residuals, i.e., they are           independent.
+# The alternative hypothesis (HaHa) is that residuals are autocorrelated.
+```
+
+```{r eval=F}
+" Residuals are not autocorrelated
+"
+```   
+
+4-3-2- map residuals
+
+```{r echo=FALSE}
+# When the residuals from a model show clear spatial patterns there is evidence of some sort of     missing variable.
+mapClassifyFeatures(chicago, resid(mod1), 5, "jenks", "YlOrRd" )
+```
+
+```{r eval=F}
+"  There is not a clear spatial pattern in the residual map.
+"
+```  
+
+4-3-3- check for multicollinearity (VIF) (Note: the cutoff is 2.5)
+
+```{r }
+# Evaluate Collinearity
+library(car)
+vif(mod1) # variance inflation factors 
+```
+
+```{r eval=F}
+" 
+The cuttoff is 2.5, and here one of them is higher than this cuttoff.
+"
+``` 
+
+4-3-4- examine the partial R-Square for each variable
+
+```{r }
+library(lmSupport)
+modelEffectSizes(mod1)
+```
+
+```{r eval=F}
+" 
+From the table generated from this function, the pEta-sqr is highest for Number_of_violent_crimes , at 0.1915, and lowest for Number_of_property_crimes, at 0.0009. These pEta-sqr values reflect the marginal contribution of each variable to the model, its impact on the model given that all other variables 
+are already in the model. 
+"
+``` 
+
+### 5 - Model adjustment
+5-1- What variables did you add/remove?
+
+```{r eval=F}
+"This model has been the best model so far. We did not have any colinearity. I eliminated Number_of_property_crimes  and Homicides  because they were not significant. Also I transform the remaining variables using SQRT.
+"
+```
+
+```{r echo=FALSE}
+mod1_red1 = lm(adj_Weapons_Violation ~ sqrt(Number_of_violent_crimes) +
+            sqrt(Percent_of_children_in_single_female_headed_household) + 
+            sqrt(PCT_of_Households_with_cash_public_assistance) + 
+            sqrt(Disorderly_Conduct),
+            data=chicago@data)
+```
+
+5-2- check for multicollinearity (VIF)
+
+A VIF on reduced model is provided below. Removing these variables did improve the VIFs:
+
+```{r echo=FALSE}
+# Evaluate Collinearity
+library(car)
+vif(mod1_red1) # variance inflation factors 
+```
+
+```{r eval=F}
+"now Weapons_Violation and Vandalism are colinear.
+"
+```
+
+5-3- Diagnostic tests: AIC, Anova, extra sum of squares (modelEffectSizes, partial R-Squared), etc. 
+```{r }
+# Akaike Information Criterion (AIC)
+# Small values are desirable
+AIC(mod1) # 1387.7
+AIC(mod1_red1) # 1363.333
+# AIC has decresed
+
+#Anova: it tests whether reduction in the residual sum of squares are statistically significant or not
+anova(mod1, mod1_red1)
+# The reduction in the residual sum of squares are not statistically significant
+
+
+# extra sum of squares (modelEffectSizes, partial R-Squared)
+modelEffectSizes(mod1_red1)
+# Vandalism had the highest partial sum of squares value, at 0.1973, showing it contributed most to the violent crime model. Percent_of_children_in_single_female_headed_household, on the other hand has the smallest partial sum of square
+```
+
+### 6 - Further model specification/diagnostics 
+6-1- Follow the same workflow as the "1st Model Specification"/"Model adjustment" sections. You should aim to run through ˜2 more model iterations.  Keep in mind that your final model does not need to be perfect, you will be explaining its shortcomings in the final model summary.
+
+
+```{r }
+# This model was quite intersting in the very first try, I do not do not see any issue in this model to rerun it. The R-squared is 0.7355 that is perfect. There is no no colinearity, autocorrelated residuals, and heteroscedasticity in this model. Great Job. There is only  a few outlier residuals that is normal.
+
+
+```
+
+
+### 7 - Final Model Summary
+7-1- In what ways does your final model explain the crime type you chose? Pay special attention to the sign and significance of each variable. Do the predictors align with your intuition about the association between social/economic characteristics and the frequency of crime?
+
+```{r eval=F}
+" To explain our crime type (number of Weapons_Violation here, we came up with four variable that can explain the variation of our model better. All of the variables in this model are statistically significant. Also this predictor does align with my intuition about the association between social/economic characteristics and the number of Weapons_Violation
+"
+```
+7-2- What shortcomings does your final model have? In what ways is the model's explanatory power limited? Does the model still violate assumptions of OLS regression (i.e. heteroskedasticity, residual [spatial]autocorrelation)? (Explain how these problems limit your ability to draw inferences about the crime type you chose.) How might the characteristics of the variables you chose influence these problems? [*]
+```{r eval=F}
+"
+Our final model has a R-square of 0.7355 that is considered perfect in a linear regression model, but still the model still violate assumptions of OLS regression. As I discussed this model is very intersting, and unlike the other models, this model do not violate assumptions of OLS regression.
+"
+```
+____________________________________________________________________
+
+## Conclusion
+```{r eval=F}
+"
+Given the many models run overall, several patterns seemed to emerge regarding predictors and variables associated with crime. I general,  I do not see race variables (especially African Americans) as an an explicit and significant indicator for crime incidents in Chicago, as do other variables such as Drug Abuse and Vandalism. I only saw that hat as crime increases the percent Hispanic decreases that can be due to the due to the institutional racism. It seems that  poverty plays a larger role in crime than does race. In our dependent variables, we can observe crime clusters in the South and Northwestern portions of the city. I used crime variables as independent variables to investigate whether certain neighborhood-level attributes routinely with crime type of crime. I modeling our dependent variables (violent crime, vehicle theft, burglary and weapons violations), we can see a strong spatial relationship toward the co-occurrence of crimes such as vandalism, disorderly conduct, property theft, etc. For example, Burglary and Vandalism or Vehicle Theft and Drug Abuse had a shared spatial quality. Or perhaps that locations with high crime occurrences might have greater crime diversity. Therefore, it seems reasonable to expect police to use data to inform their strategies and tactics on some tracts due to the co-occurrence of crimes, but it seems unfair to target individuals due to racial characteristics. It seems interesting to inverstigate the reasons of co-occurrence of some crimes.
+"
+```

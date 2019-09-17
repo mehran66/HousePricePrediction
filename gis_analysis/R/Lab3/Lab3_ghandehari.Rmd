@@ -1,0 +1,285 @@
+---
+title: "Lab 3: Mammal Sleep Patterns"
+author: "Merhan Ghandehari"
+date: "February 6, 2016"
+output: html_document
+---
+
+
+
+ ```{r, echo=FALSE}
+# sales = read.csv("Data/Milwaukee_Sales_2012.csv")  # Load some data
+# cor.test(sales$SalePrice, sales$FinSqft)  # Correlation test
+# m = lm(SalePrice ~ FinSqft, data=sales)  # Fit a model
+# plot(SalePrice ~ FinSqft, data=sales)  # Scatterplot...
+# abline(m, col="red")  # ...with best fit line
+```
+
+```{r, echo=FALSE}
+mammals = read.table("Data/SleepMammals.txt", header=TRUE)
+summary(mammals)
+
+# Converting the values for Predation, Exposure, and Danger from
+# n umeric (integers) to categorical data
+mammals$Predation = as.factor(mammals$Predation)
+mammals$Exposure = as.factor(mammals$Exposure)
+mammals$Danger = as.factor(mammals$Danger)
+# Show a summary of these newly converted variables 
+summary(mammals[, c("Predation", "Exposure", "Danger")])
+```
+
+	
+Variable		  Description
+BodyWt		    body weight (kg)
+BrainWt		    brain weight (g)
+NonDreaming		slow wave ("nondreaming") sleep (hrs/day)
+Dreaming		  paradoxical ("dreaming") sleep (hrs/day)
+TotalSleep		total sleep, sum of slow wave and paradoxical sleep (hrs/day)
+LifeSpan		  maximum life span (years)
+Gestation		  gestation time (days)
+Predation		  predation index (1-5)
+              1 = minimum (least likely to be preyed upon); 5 = maximum (most likely               to be preyed upon)
+Exposure	  	sleep exposure index (1-5)
+              1 = least exposed (e.g. animal sleeps in a well-protected den); 5 =                  most exposed
+Danger		    overall danger index (1-5) (based on the above two indices and other                 information)
+              1 = least danger (from other animals); 5 = most danger (from other                   animals)
+
+```{r }
+# cerate a new variable in mammals dataframe named BrainPct (the percentage of total body weight that the brain weighs)
+# BrainPct = BrainWt / (BodyWt * 1000)
+mammals$BrainPct = (mammals$BrainWt / (mammals$BodyWt * 1000))*100
+
+#the highest BrainPct
+HighestBrainPct = mammals[mammals$BrainPct == max(mammals$BrainPct), "Species"]
+print(HighestBrainPct)
+
+# HighestBrainPct = mammals[which.max(mammals$BrainPct), "Species"]
+
+
+# the lowest BrainPct
+LowestBrainPct = mammals[mammals$BrainPct == min(mammals$BrainPct), "Species"]
+print(LowestBrainPct)
+
+# the mean of BrainPct
+MeanBrainPct = mean(mammals$BrainPct)
+print(MeanBrainPct)
+
+# the median of BrainPct
+MedianBrainPct = median(mammals$BrainPct)
+print(MedianBrainPct)
+```
+
+
+```{r, echo=FALSE, fig.align='center'}
+# distribution of BrainPct
+par(mfrow=c(2,2))
+hist(mammals$BrainPct, col="gray", main = "Histgram of brain percentage", xlab = "Brain percentage")
+plot(density(mammals$BrainPct), col="gray", main = "Density plot of brain percentage", xlab = "Brain percentage")
+boxplot(mammals$BrainPct, col="gray", main = "Boxplot of brain percentage", ylab = "Brain percentage")
+
+# vioplot is a combination of a density plot and a box plot
+library(vioplot)
+vioplot(mammals$BrainPct, col="gray")
+title (main = "Vioplot of brain percentage", ylab = "Brain percentage")
+```
+
+- the distribution appears positively (right) skewed
+
+```{r }
+library(moments)
+skewness(mammals$BrainPct)
+
+library(e1071)
+skewness(mammals$BrainPct)
+```
+
+The skewness here is 1.315525 or 1.283827. This value implies that the distribution of the data isskewed to the right or positively skewed.
+
+3. a scatterplot with LifeSpan on the y-axis and Gestation on the x-axis
+
+```{r }
+plot(mammals$Gestation, mammals$LifeSpan, 
+     xlab = "Gestation",
+     ylab = "LifeSpan",
+     pch = 20,
+     col = "grey")
+```
+# get rid of all of the plots
+# dev.off(dev.list()["RStudioGD"])
+
+4. a boxplot that compares body weight across the five Danger levels.
+
+```{r, echo=FALSE, fig.align='center'}
+boxplot(mammals$BodyWt ~ mammals$Danger,
+        col = "beige",
+        xlab = "Danger Level = 1",
+        ylab = "Body Weight", outline =F)
+
+
+means = aggregate(BodyWt~Danger,data=mammals,FUN="mean", outline =F)
+par(new=T)
+points(means, col="red",pch=18)
+```
+
+4.2. a boxplot that compares TotalSleep across the five Danger levels
+
+```{r, echo=FALSE, fig.align='center'}
+
+boxplot(mammals$TotalSleep ~ mammals$Danger,
+        col = "beige",
+        xlab = "Danger Level",
+        ylab = "Total Sleep",
+        outline=FALSE)
+
+means = aggregate(TotalSleep~Danger,data=mammals,FUN="mean", outline =F)
+par(new=T)
+points(means, col="red",pch=18)
+```
+- What inferences can you make about the sleeping conditions of an animal from this box plot?
+
+???what is danger index?
+
+# Data Transformations
+5-
+```{r }
+mammals$LogBrainPct = log(mammals$BrainPct)
+hist(mammals$LogBrainPct, freq=FALSE)
+mu = mean(mammals$LogBrainPct)
+std = sd(mammals$LogBrainPct)
+curve(dnorm(x, mean=mu, sd=std), add=TRUE)  # Add curve to plot
+```
+
+6-
+Data transformation is used the data does not have a normal distribution.
+
+    There are many reasons for transformation. The list here is not
+    comprehensive
+        1. Convenience
+        2. Reducing skewness
+        3. Equal spreads
+        4. Linear relationships
+        5. Additive relationships
+        
+linear tranformation is used to change data from one sclae to another (such as z score), but it does not change the shape of the distribution
+with transformation you can chnage an exponentiol corelation to a linear corelation (y=m^x -> log y = x log m -> log y = ax + b) so if we log y and see that we have a straight line we can conclude that the original data has been exponential. if it was not an staright line, you should log both x and y, and then if the scatter plot was straght then the original data is power 
+        
+# Correlation Analysis
+7) correlation between lifespan and gestation period
+```{r }
+cor(mammals$LifeSpan, mammals$Gestation, use = "complete.obs", method = "pearson")
+
+cor(mammals$LifeSpan, mammals$Gestation, use = "complete.obs", method =  "kendall")
+
+cor(mammals$LifeSpan, mammals$Gestation, use = "complete.obs", method = "spearman")
+```
+
+Yes, from plot in question 3, it was clear that there is a positive linear relationship between these two variables.
+
+8-
+```{r }
+MammalsSubset = data.frame(TotalSleep = mammals$TotalSleep, BodyWt = mammals$BodyWt, BrainWt = mammals$BrainWt, LifeSpan = mammals$LifeSpan, Gestation = mammals$Gestation)
+
+# mammals[,sapply(mammals, is.numeric)] # this code is extract the numeric attributes, but here we don't need all of the numeric attributes
+
+MammalsSubset_corr = cor(MammalsSubset, use = "complete.obs", method = "pearson") # get correlations
+
+library('corrplot') #package corrplot
+corrplot(MammalsSubset_corr, method = "circle", addCoef.col = "black") #plot matrix
+
+# Use "Pairs Plot" from "psych" package to visualize scatter plot
+library("psych")
+pairs.panels(MammalsSubset, gap = 0)
+```
+Based on Pearson’s correlation coefficient, which two variables are most and least correlated with each-other?
+
+Body weight and brain weight are the most correlated (0.93) and body weight and life span are the least correlated (0.30).
+
+#Part II
+## Linear Regression
+9-
+```{r }
+# what shoud I do with NA; there are many NA in mammals$TotalSleep
+Sleep_BodyWt.lm = lm(mammals$TotalSleep ~ mammals$BodyWt)
+coeffs = coefficients(Sleep_BodyWt.lm); coeffs
+
+#How to write the formula????
+β0 = 10.835131637
+β1 = -0.001524093
+
+# coefficient of determination of a linear regression model (the variances of the fitted values and observed values of the dependent variable)  "Values of R2 close to 1 imply that most of the variability in y is explained by the regression model." "0% indicates that the model explains none of the variability of the response data around its mean." "Metric for evaluating the goodness of fit of your model. Higher is better with 1 being the best. "
+
+"*** for high significance and * for low significance"
+summary(Sleep_BodyWt.lm)$r.squared 
+
+summary(Sleep_BodyWt.lm)
+# P-value is higher than .05. so we accept the null hypothesis; it means that there is not a significant relationship between the variables in the linear regression model "The p-value for each term tests the null hypothesis that the coefficient is equal to zero (no effect). A low p-value (< 0.05) indicates that you can reject the null hypothesis. In other words, a predictor that has a low p-value is likely to be a meaningful addition to your model because changes in the predictor's value are related to changes in the response variable. Conversely, a larger (insignificant) p-value suggests that changes in the predictor are not associated with changes in the response."
+
+
+plot(mammals$BodyWt, mammals$TotalSleep,
+     main = "XXXX",
+     xlab = "XXX",
+     ylab = "YYY",
+     pch = 20,
+     col = "grey")
+# Add fit lines
+# Linear regression line (y ~ x) 
+abline(Sleep_BodyWt.lm, col="red")
+
+par(mfrow=c(2,2))
+plot (Sleep_BodyWt.lm)
+
+# Residual Plot
+Sleep_BodyWt.res = resid(Sleep_BodyWt.lm)
+plot(mammals$BodyWt[1:58], as.vector(Sleep_BodyWt.res), 
+   ylab="Residuals", 
+   xlab="BodyWt", 
+   main="XXX") 
+abline(0, 0) # the horizon
+```
+10- similar to 9, just by replacing variables
+```{r }
+Sleep_BodyWt.lm = lm(mammals$TotalSleep ~ mammals$BrainWt)
+coeffs = coefficients(Sleep_BodyWt.lm); coeffs
+summary(Sleep_BodyWt.lm)
+
+plot(mammals$BrainWt, mammals$TotalSleep,
+     main = "XXXX",
+     xlab = "XXX",
+     ylab = "YYY",
+     pch = 20,
+     col = "grey")
+# Add fit lines
+# Linear regression line (y ~ x) 
+abline(Sleep_BodyWt.lm, col="red")
+```
+##Multiple Regression
+```{r }
+MultiReg.lm = lm(mammals$TotalSleep ~ mammals$BodyWt + mammals$BrainWt + mammals$LifeSpan + mammals$Gestation)
+
+summary(MultiReg.lm)
+```
+
+
+
+
+```{r }
+# what shoud I do with NA; there are many NA in mammals$TotalSleep
+Sleep_BodyWt.lm = lm(mammals$TotalSleep ~ mammals$BodyWt)
+coeffs = coefficients(Sleep_BodyWt.lm); coeffs
+
+test = na.omit(data.frame(TotalSleep=mammals$TotalSleep, BodyWt=mammals$BodyWt))
+test2 = test[test$TotalSleep > quantile(test$TotalSleep, .25) - 1.5*IQR(test$TotalSleep) & test$TotalSleep < quantile(test$TotalSleep, .75) + 1.5*IQR(test$TotalSleep) & test$BodyWt > quantile(test$BodyWt, .25) - 1.5*IQR(test$BodyWt) & test$BodyWt < quantile(test$BodyWt, .75) + 1.5*IQR(test$BodyWt),]
+
+Sleep_BodyWt.lm = lm(test2$TotalSleep ~ test2$BodyWt)
+summary(Sleep_BodyWt.lm)
+
+plot(test2$BodyWt, test2$TotalSleep,
+     main = "XXXX",
+     xlab = "XXX",
+     ylab = "YYY",
+     pch = 20,
+     col = "grey")
+# Add fit lines
+# Linear regression line (y ~ x) 
+abline(Sleep_BodyWt.lm, col="red")
+```
