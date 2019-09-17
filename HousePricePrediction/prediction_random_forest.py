@@ -378,7 +378,7 @@ if __name__ == '__main__':
     import pandas
     data = pandas.read_csv("cleaned_house_data4.csv", encoding='utf8')    
     import googlemaps
-    gmaps_key = googlemaps.Client(key='AIzaSyCXp2Qhw4BGaeiagHNchQw0yPGMKH_XTko')
+    gmaps_key = googlemaps.Client(key='Deleted4Security')
     data['LAT'] = None
     data['LON'] = None
     for i in range(0, len(data), 1):
