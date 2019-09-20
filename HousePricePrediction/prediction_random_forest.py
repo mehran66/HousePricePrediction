@@ -367,7 +367,7 @@ if __name__ == '__main__':
     boro_locations.to_file("geography.shp")
     
     from geopandas.tools import geocode
-    key = 'AIzaSyCXp2Qhw4BGaeiagHNchQw0yPGMKH_XTko'
+    key = 'delted'
     geo = geocode(boros['address'], api_key=key)
     
     with open('cleaned_house_data3.csv') as f:
